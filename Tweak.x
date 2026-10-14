@@ -2,6 +2,10 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 
+// 声明 MFBannerBtn 继承自 UIView，让编译器识别 subviews 和 bounds
+@interface MFBannerBtn : UIButton
+@end
+
 static char kIsGroupTabBtnKey;
 #define LIQUID_GLASS_TAG 8888
 
