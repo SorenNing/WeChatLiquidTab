@@ -131,7 +131,7 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 - (void)reloadTableData {
     %orig;
 
-    MMTableViewInfo *tableViewInfo = MSHookIvar<MMTableViewInfo *>(self, "m_tableViewInfo");
+    id tableViewInfo = [self valueForKey:@"m_tableViewInfo"];
     if (!tableViewInfo) return;
 
     // 创建专属设置分组
