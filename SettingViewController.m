@@ -1,51 +1,22 @@
 #import "SettingViewController.h"
 #import <objc/runtime.h>
 
-#define PREF_PATH @"/var/mobile/Library/Preferences/com.soren.wechatliquidtab.plist"
-#define NOTIFY_RELOAD "com.soren.wechatliquidtab/Reload"
-
-@interface WeChatLiquidTabSettingViewController ()
-@property (nonatomic, strong) NSMutableDictionary *prefs;
-@end
+#define UD [NSUserDefaults standardUserDefaults]
+#define K_ENABLED @"WCLiquid_enabled"
+#define K_CLEAR_TRACK @"WCLiquid_clearOuterTrack"
+#define K_LIVE_BLUR @"WCLiquid_enableLiveBlur"
+#define K_BLUR_INTENSITY @"WCLiquid_blurIntensity"
+#define K_SPECULAR @"WCLiquid_enableSpecular"
+#define K_SPECULAR_INTENSITY @"WCLiquid_specularIntensity"
+#define K_RIM_LIGHT @"WCLiquid_enableRimLight"
+#define K_RIM_WIDTH @"WCLiquid_rimBorderWidth"
+#define K_HIDE_DOTS @"WCLiquid_hideRedDots"
+#define K_INTERCEPT @"WCLiquid_interceptGroup"
 
 @implementation WeChatLiquidTabSettingViewController
 
 - (instancetype)init {
-    self = [super initWithStyle:UITableViewStyleGrouped];
-    if (self) {
-        [self loadPrefs];
-    }
-    return self;
-}
-
-- (void)loadPrefs {
-    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:PREF_PATH];
-    if (dict) {
-        self.prefs = [dict mutableCopy];
-    } else {
-        self.prefs = [NSMutableDictionary dictionary];
-    }
-    if (!self.prefs[@"enabled"]) self.prefs[@"enabled"] = @(YES);
-    if (!self.prefs[@"clearOuterTrack"]) self.prefs[@"clearOuterTrack"] = @(YES);
-    if (!self.prefs[@"enableLiveBlur"]) self.prefs[@"enableLiveBlur"] = @(YES);
-    if (!self.prefs[@"blurIntensity"]) self.prefs[@"blurIntensity"] = @(0.35);
-    if (!self.prefs[@"enableSpecular"]) self.prefs[@"enableSpecular"] = @(YES);
-    if (!self.prefs[@"specularIntensity"]) self.prefs[@"specularIntensity"] = @(0.50);
-    if (!self.prefs[@"enableRimLight"]) self.prefs[@"enableRimLight"] = @(YES);
-    if (!self.prefs[@"rimBorderWidth"]) self.prefs[@"rimBorderWidth"] = @(1.0);
-    if (!self.prefs[@"hideRedDots"]) self.prefs[@"hideRedDots"] = @(NO);
-    if (!self.prefs[@"interceptGroup"]) self.prefs[@"interceptGroup"] = @(NO);
-}
-
-- (void)savePrefs {
-    [self.prefs writeToFile:PREF_PATH atomically:YES];
-    CFNotificationCenterPostNotification(
-        CFNotificationCenterGetDarwinNotifyCenter(),
-        CFSTR(NOTIFY_RELOAD),
-        NULL,
-        NULL,
-        YES
-    );
+    return [super initWithStyle:UITableViewStyleGrouped];
 }
 
 - (void)viewDidLoad {
@@ -64,10 +35,10 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
-        case 0: return 2; // 核心控制
-        case 1: return 6; // 液态质感 (3组开关+滑块)
-        case 2: return 2; // 功能定制
-        case 3: return 1; // 关于
+        case 0: return 2;
+        case 1: return 6;
+        case 2: return 2;
+        case 3: return 1;
         default: return 0;
     }
 }
@@ -84,10 +55,10 @@
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     switch (section) {
-        case 0: return @"开启一体化水滴将彻底清除原本生硬的外层灰框。";
-        case 1: return @"采用实时透视材质 + 物理高光与边缘反光倒角，支持深浅模式自适应。";
+        case 0: return @"开启一体化水滴将彻底清除原本生硬的外层灰色跑道。";
+        case 1: return @"支持 iOS 实时背景物理透视与高光反光倒角，即调即生效。";
         case 2: return @"开启后点击群聊分栏将拦截切换。";
-        case 3: return @"WeChatLiquidTab v0.2.0 by Soren Ning\n深度调优，即调即生效。";
+        case 3: return @"WeChatLiquidTab v0.2.4 by Soren Ning\n原生本地存储，即调即生效。";
         default: return nil;
     }
 }
@@ -107,15 +78,15 @@
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
     }
 
-    void (^createSwitch)(NSString *) = ^(NSString *key) {
+    void (^createSwitch)(NSString *, BOOL) = ^(NSString *key, BOOL defaultVal) {
         UISwitch *sw = [[UISwitch alloc] init];
-        sw.on = [self.prefs[key] boolValue];
+        sw.on = [UD objectForKey:key] ? [UD boolForKey:key] : defaultVal;
         [sw addTarget:self action:@selector(switchAction:) forControlEvents:UIControlEventValueChanged];
         objc_setAssociatedObject(sw, "prefKey", key, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         cell.accessoryView = sw;
     };
 
-    void (^createSlider)(NSString *, float, float, NSString *) = ^(NSString *key, float min, float max, NSString *fmt) {
+    void (^createSlider)(NSString *, float, float, float, NSString *) = ^(NSString *key, float defaultVal, float min, float max, NSString *fmt) {
         UIView *sliderBox = [[UIView alloc] initWithFrame:CGRectMake(16, 0, tableView.bounds.size.width - 32, 64)];
         UILabel *valLbl = [[UILabel alloc] initWithFrame:CGRectMake(sliderBox.bounds.size.width - 70, 4, 60, 20)];
         valLbl.font = [UIFont systemFontOfSize:13 weight:UIFontWeightRegular];
@@ -125,8 +96,13 @@
         UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(0, 28, sliderBox.bounds.size.width, 30)];
         slider.minimumValue = min;
         slider.maximumValue = max;
-        slider.value = [self.prefs[key] floatValue];
-        valLbl.text = [NSString stringWithFormat:fmt, slider.value];
+        slider.value = [UD objectForKey:key] ? [UD floatForKey:key] : defaultVal;
+        
+        if ([fmt containsString:@"%%"]) {
+            valLbl.text = [NSString stringWithFormat:fmt, slider.value * 100.0];
+        } else {
+            valLbl.text = [NSString stringWithFormat:fmt, slider.value];
+        }
 
         [slider addTarget:self action:@selector(sliderAction:) forControlEvents:UIControlEventValueChanged];
         objc_setAssociatedObject(slider, "prefKey", key, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -141,42 +117,42 @@
     if (indexPath.section == 0) {
         if (indexPath.row == 0) {
             cell.textLabel.text = @"启用液态玻璃";
-            createSwitch(@"enabled");
+            createSwitch(K_ENABLED, YES);
         } else {
             cell.textLabel.text = @"一体化水滴 (消除外圈灰边)";
-            createSwitch(@"clearOuterTrack");
+            createSwitch(K_CLEAR_TRACK, YES);
         }
     } else if (indexPath.section == 1) {
         if (indexPath.row == 0) {
             cell.textLabel.text = @"实时透视模糊 (Live Glass)";
-            createSwitch(@"enableLiveBlur");
+            createSwitch(K_LIVE_BLUR, YES);
         } else if (indexPath.row == 1) {
             cell.textLabel.text = @"折射与底色浓度";
-            createSlider(@"blurIntensity", 0.05, 0.70, @"%.0f%%");
+            createSlider(K_BLUR_INTENSITY, 0.35, 0.05, 0.70, @"%.0f%%");
         } else if (indexPath.row == 2) {
             cell.textLabel.text = @"凸面弧光高光 (Specular)";
-            createSwitch(@"enableSpecular");
+            createSwitch(K_SPECULAR, YES);
         } else if (indexPath.row == 3) {
             cell.textLabel.text = @"高光反光强度";
-            createSlider(@"specularIntensity", 0.10, 1.00, @"%.0f%%");
+            createSlider(K_SPECULAR_INTENSITY, 0.50, 0.10, 1.00, @"%.0f%%");
         } else if (indexPath.row == 4) {
             cell.textLabel.text = @"晶莹边缘倒角 (Rim Light)";
-            createSwitch(@"enableRimLight");
+            createSwitch(K_RIM_LIGHT, YES);
         } else if (indexPath.row == 5) {
             cell.textLabel.text = @"倒角反光粗细";
-            createSlider(@"rimBorderWidth", 0.5, 2.5, @"%.1f pt");
+            createSlider(K_RIM_WIDTH, 1.0, 0.5, 2.5, @"%.1f pt");
         }
     } else if (indexPath.section == 2) {
         if (indexPath.row == 0) {
             cell.textLabel.text = @"隐藏分栏小红点";
-            createSwitch(@"hideRedDots");
+            createSwitch(K_HIDE_DOTS, NO);
         } else {
             cell.textLabel.text = @"拦截群聊切换";
-            createSwitch(@"interceptGroup");
+            createSwitch(K_INTERCEPT, NO);
         }
     } else if (indexPath.section == 3) {
         cell.textLabel.text = @"当前版本";
-        cell.detailTextLabel.text = @"0.2.0 (roothide)";
+        cell.detailTextLabel.text = @"0.2.4 (roothide)";
     }
 
     return cell;
@@ -185,8 +161,9 @@
 - (void)switchAction:(UISwitch *)sw {
     NSString *key = objc_getAssociatedObject(sw, "prefKey");
     if (key) {
-        self.prefs[key] = @(sw.isOn);
-        [self savePrefs];
+        [UD setBool:sw.isOn forKey:key];
+        [UD synchronize];
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"WCLiquidSettingsChanged" object:nil];
     }
 }
 
@@ -195,7 +172,8 @@
     UILabel *lbl = objc_getAssociatedObject(slider, "valLbl");
     NSString *fmt = objc_getAssociatedObject(slider, "fmt");
     if (key) {
-        self.prefs[key] = @(slider.value);
+        [UD setFloat:slider.value forKey:key];
+        [UD synchronize];
         if (lbl && fmt) {
             if ([fmt containsString:@"%%"]) {
                 lbl.text = [NSString stringWithFormat:fmt, slider.value * 100.0];
@@ -203,7 +181,7 @@
                 lbl.text = [NSString stringWithFormat:fmt, slider.value];
             }
         }
-        [self savePrefs];
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"WCLiquidSettingsChanged" object:nil];
     }
 }
 

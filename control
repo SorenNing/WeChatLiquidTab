@@ -1,9 +1,9 @@
 Package: com.soren.wechatliquidtab
 Name: WeChat Liquid Tab
 Depends: mobilesubstrate (>= 0.9.5000)
-Version: 0.2.3
+Version: 0.2.4
 Architecture: iphoneos-arm64e
-Description: 微信设置页右上角与长按快捷调参，液态玻璃分组栏
+Description: 微信原生内存配置存储，即调即生效，完全消除外圈灰边
 Maintainer: Soren
 Author: Soren
 Section: Tweaks

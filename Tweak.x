@@ -12,7 +12,6 @@
 @interface WCPluginsViewController : UIViewController
 - (id)addNormalCellForSel:(SEL)arg1 title:(id)arg2 rightValue:(id)arg3 userInfo:(id)arg4;
 - (void)pushPluginController:(id)arg1;
-- (void)reloadTableData;
 - (NSMutableArray *)dataSource;
 @end
 
@@ -20,53 +19,37 @@ static char kIsGroupTabBtnKey;
 #define TRACK_GLASS_TAG 8888
 #define BLUR_EFFECT_TAG 8889
 #define GLOSS_LAYER_NAME @"LiquidGlossLayer"
-#define PREF_PATH @"/var/mobile/Library/Preferences/com.soren.wechatliquidtab.plist"
-#define NOTIFY_RELOAD "com.soren.wechatliquidtab/Reload"
 
-// ====================================================================
-// 配置参数管理
-// ====================================================================
-static BOOL gEnabled = YES;
-static BOOL gClearOuterTrack = YES;
-static BOOL gEnableLiveBlur = YES;
-static CGFloat gBlurIntensity = 0.35;
-static BOOL gEnableSpecular = YES;
-static CGFloat gSpecularIntensity = 0.50;
-static BOOL gEnableRimLight = YES;
-static CGFloat gRimBorderWidth = 1.0;
-static BOOL gHideRedDots = NO;
-static BOOL gInterceptGroup = NO;
+#define UD [NSUserDefaults standardUserDefaults]
+#define K_ENABLED @"WCLiquid_enabled"
+#define K_CLEAR_TRACK @"WCLiquid_clearOuterTrack"
+#define K_LIVE_BLUR @"WCLiquid_enableLiveBlur"
+#define K_BLUR_INTENSITY @"WCLiquid_blurIntensity"
+#define K_SPECULAR @"WCLiquid_enableSpecular"
+#define K_SPECULAR_INTENSITY @"WCLiquid_specularIntensity"
+#define K_RIM_LIGHT @"WCLiquid_enableRimLight"
+#define K_RIM_WIDTH @"WCLiquid_rimBorderWidth"
+#define K_HIDE_DOTS @"WCLiquid_hideRedDots"
+#define K_INTERCEPT @"WCLiquid_interceptGroup"
 
-static void loadPrefs(void) {
-    NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:PREF_PATH];
-    if (prefs) {
-        gEnabled = prefs[@"enabled"] ? [prefs[@"enabled"] boolValue] : YES;
-        gClearOuterTrack = prefs[@"clearOuterTrack"] ? [prefs[@"clearOuterTrack"] boolValue] : YES;
-        gEnableLiveBlur = prefs[@"enableLiveBlur"] ? [prefs[@"enableLiveBlur"] boolValue] : YES;
-        gBlurIntensity = prefs[@"blurIntensity"] ? [prefs[@"blurIntensity"] floatValue] : 0.35;
-        gEnableSpecular = prefs[@"enableSpecular"] ? [prefs[@"enableSpecular"] boolValue] : YES;
-        gSpecularIntensity = prefs[@"specularIntensity"] ? [prefs[@"specularIntensity"] floatValue] : 0.50;
-        gEnableRimLight = prefs[@"enableRimLight"] ? [prefs[@"enableRimLight"] boolValue] : YES;
-        gRimBorderWidth = prefs[@"rimBorderWidth"] ? [prefs[@"rimBorderWidth"] floatValue] : 1.0;
-        gHideRedDots = prefs[@"hideRedDots"] ? [prefs[@"hideRedDots"] boolValue] : NO;
-        gInterceptGroup = prefs[@"interceptGroup"] ? [prefs[@"interceptGroup"] boolValue] : NO;
-    }
+static BOOL getPrefBool(NSString *key, BOOL defaultVal) {
+    return [UD objectForKey:key] ? [UD boolForKey:key] : defaultVal;
 }
 
-static void prefsNotificationCallback(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    loadPrefs();
+static CGFloat getPrefFloat(NSString *key, CGFloat defaultVal) {
+    return [UD objectForKey:key] ? [UD floatForKey:key] : defaultVal;
 }
 
 // ====================================================================
-// 动态色彩自适应
+// 动态颜色适配 (iOS 17 原生动态模式)
 // ====================================================================
-static UIColor *getDynamicGlassTint(void) {
+static UIColor *getDynamicGlassTint(CGFloat intensity) {
     if (@available(iOS 13.0, *)) {
         return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
             if (traits.userInterfaceStyle == UIUserInterfaceStyleDark) {
-                return [UIColor colorWithWhite:1.0 alpha:(gBlurIntensity * 0.25)];
+                return [UIColor colorWithWhite:1.0 alpha:(intensity * 0.25)];
             } else {
-                return [UIColor colorWithWhite:1.0 alpha:(gBlurIntensity * 0.75)];
+                return [UIColor colorWithWhite:1.0 alpha:(intensity * 0.75)];
             }
         }];
     }
@@ -103,14 +86,12 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 }
 
 // ====================================================================
-// 1. 微信原生“设置”页面接入 (NewSettingViewController - 导航栏右上角安全入口)
+// 1. 微信原生“设置”页面安全右上角入口 (NewSettingViewController)
 // ====================================================================
 %hook NewSettingViewController
 
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
-
-    // 在右上角挂载设置按钮，零侵入表格，绝对不闪退
     UIBarButtonItem *btn = [[UIBarButtonItem alloc] initWithTitle:@"液态玻璃" 
                                                            style:UIBarButtonItemStylePlain 
                                                           target:self 
@@ -133,7 +114,6 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
-
     NSMutableArray *ds = [self dataSource];
     BOOL found = NO;
     for (id item in ds) {
@@ -142,11 +122,10 @@ static UIColor *getDynamicTextColor(BOOL selected) {
             break;
         }
     }
-
     if (!found) {
         [self addNormalCellForSel:@selector(openWeChatLiquidTabSettings) 
                             title:@"液态玻璃" 
-                       rightValue:@"0.2.3" 
+                       rightValue:@"0.2.4" 
                          userInfo:nil];
     }
 }
@@ -164,31 +143,74 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 %end
 
 // ====================================================================
-// 3. 真正的苹果液态玻璃渲染 (MFBannerBtn) + 长按快捷呼出设置
+// 3. 真正的苹果液态玻璃渲染 (MFBannerBtn)
 // ====================================================================
 %hook MFBannerBtn
+
+- (void)didMoveToWindow {
+    %orig;
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:@"WCLiquidSettingsChanged" object:nil];
+    if (self.window) {
+        [[NSNotificationCenter defaultCenter] addObserver:self 
+                                                 selector:@selector(setNeedsLayout) 
+                                                     name:@"WCLiquidSettingsChanged" 
+                                                   object:nil];
+    }
+}
 
 - (void)layoutSubviews {
     %orig;
 
-    if (!gEnabled) return;
+    BOOL enabled = getPrefBool(K_ENABLED, YES);
+    BOOL clearOuterTrack = getPrefBool(K_CLEAR_TRACK, YES);
+    BOOL enableLiveBlur = getPrefBool(K_LIVE_BLUR, YES);
+    CGFloat blurIntensity = getPrefFloat(K_BLUR_INTENSITY, 0.35);
+    BOOL enableSpecular = getPrefBool(K_SPECULAR, YES);
+    CGFloat specularIntensity = getPrefFloat(K_SPECULAR_INTENSITY, 0.50);
+    BOOL enableRimLight = getPrefBool(K_RIM_LIGHT, YES);
+    CGFloat rimBorderWidth = getPrefFloat(K_RIM_WIDTH, 1.0);
+    BOOL hideRedDots = getPrefBool(K_HIDE_DOTS, NO);
 
-    // ① 清除原本生硬的外层灰色轨道（仅改背景色，避免破坏 UIKit 内部结构）
-    if (gClearOuterTrack) {
+    // ① 如果关闭了全局开关，精准清除所有添加的图层，完全恢复微信原生界面！
+    if (!enabled) {
+        for (UIView *v in self.subviews) {
+            [[v viewWithTag:BLUR_EFFECT_TAG] removeFromSuperview];
+            [[v viewWithTag:TRACK_GLASS_TAG] removeFromSuperview];
+            v.layer.shadowOpacity = 0.0;
+        }
+        return;
+    }
+
+    // ② 彻底消灭外层灰框跑道（清除自身及父级 Cell 的 UIBackgroundConfiguration）
+    if (clearOuterTrack) {
         self.backgroundColor = [UIColor clearColor];
         self.layer.backgroundColor = nil;
         self.layer.borderWidth = 0.0;
         self.layer.shadowOpacity = 0.0;
+        if (@available(iOS 15.0, *)) {
+            self.configuration = nil;
+        }
+        [self setBackgroundImage:nil forState:UIControlStateNormal];
 
         UIView *parent = self.superview;
         while (parent && ![parent isKindOfClass:[UITableView class]]) {
             parent.backgroundColor = [UIColor clearColor];
             parent.layer.backgroundColor = nil;
+            if ([parent isKindOfClass:[UITableViewCell class]]) {
+                UITableViewCell *cell = (UITableViewCell *)parent;
+                cell.backgroundColor = [UIColor clearColor];
+                cell.contentView.backgroundColor = [UIColor clearColor];
+                cell.backgroundView = nil;
+                cell.selectedBackgroundView = nil;
+                if (@available(iOS 14.0, *)) {
+                    cell.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
+                }
+            }
             parent = parent.superview;
         }
     }
 
-    // ② 寻找内部容器
+    // ③ 寻找内部装有 UIStackView 的容器视图
     for (UIView *v in self.subviews) {
         UIStackView *stack = nil;
         for (UIView *sub in v.subviews) {
@@ -206,16 +228,16 @@ static UIColor *getDynamicTextColor(BOOL selected) {
         v.backgroundColor = [UIColor clearColor];
         v.layer.backgroundColor = nil;
 
-        // 添加长按手势（0.6s 长按分组栏直接呼出液态玻璃设置页）
+        // 长按快捷手势
         if (v.gestureRecognizers.count == 0) {
             UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLiquidBarLongPress:)];
             longPress.minimumPressDuration = 0.6;
             [v addGestureRecognizer:longPress];
         }
 
-        // ③ 实时背景透视材质 (Live Material)
+        // ④ 实时背景透视材质 (Live Material)
         UIVisualEffectView *blurView = (UIVisualEffectView *)[v viewWithTag:BLUR_EFFECT_TAG];
-        if (gEnableLiveBlur) {
+        if (enableLiveBlur) {
             if (!blurView) {
                 UIBlurEffect *blurEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial];
                 blurView = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
@@ -235,7 +257,7 @@ static UIColor *getDynamicTextColor(BOOL selected) {
             blurView.hidden = YES;
         }
 
-        // ④ 晶莹水体、边缘倒角与凸面高光层
+        // ⑤ 晶莹水体、边缘倒角与凸面高光层
         UIView *glassOverlay = [v viewWithTag:TRACK_GLASS_TAG];
         if (!glassOverlay) {
             glassOverlay = [[UIView alloc] initWithFrame:v.bounds];
@@ -248,16 +270,16 @@ static UIColor *getDynamicTextColor(BOOL selected) {
                 glassOverlay.layer.cornerCurve = kCACornerCurveContinuous;
             }
 
-            if (gEnableRimLight) {
-                glassOverlay.layer.borderWidth = gRimBorderWidth;
+            if (enableRimLight) {
+                glassOverlay.layer.borderWidth = rimBorderWidth;
                 glassOverlay.layer.borderColor = getDynamicRimBorderColor().CGColor;
             }
 
-            if (gEnableSpecular) {
+            if (enableSpecular) {
                 CAGradientLayer *glossLayer = [CAGradientLayer layer];
                 glossLayer.name = GLOSS_LAYER_NAME;
                 glossLayer.frame = CGRectMake(0, 0, v.bounds.size.width, h * 0.58);
-                CGFloat specAlpha = gSpecularIntensity;
+                CGFloat specAlpha = specularIntensity;
                 glossLayer.colors = @[
                     (id)[UIColor colorWithWhite:1.0 alpha:(specAlpha * 0.85)].CGColor,
                     (id)[UIColor colorWithWhite:1.0 alpha:(specAlpha * 0.25)].CGColor,
@@ -278,18 +300,18 @@ static UIColor *getDynamicTextColor(BOOL selected) {
             [v insertSubview:glassOverlay atIndex:insertIdx];
         } else {
             glassOverlay.frame = v.bounds;
-            glassOverlay.backgroundColor = getDynamicGlassTint();
-            glassOverlay.layer.borderWidth = gEnableRimLight ? gRimBorderWidth : 0.0;
-            if (gEnableRimLight) {
+            glassOverlay.backgroundColor = getDynamicGlassTint(blurIntensity);
+            glassOverlay.layer.borderWidth = enableRimLight ? rimBorderWidth : 0.0;
+            if (enableRimLight) {
                 glassOverlay.layer.borderColor = getDynamicRimBorderColor().CGColor;
             }
             for (CALayer *sublayer in glassOverlay.layer.sublayers) {
                 if ([sublayer.name isEqualToString:GLOSS_LAYER_NAME]) {
                     sublayer.frame = CGRectMake(0, 0, v.bounds.size.width, h * 0.58);
-                    sublayer.hidden = !gEnableSpecular;
+                    sublayer.hidden = !enableSpecular;
                     if ([sublayer isKindOfClass:[CAGradientLayer class]]) {
                         CAGradientLayer *gl = (CAGradientLayer *)sublayer;
-                        CGFloat specAlpha = gSpecularIntensity;
+                        CGFloat specAlpha = specularIntensity;
                         gl.colors = @[
                             (id)[UIColor colorWithWhite:1.0 alpha:(specAlpha * 0.85)].CGColor,
                             (id)[UIColor colorWithWhite:1.0 alpha:(specAlpha * 0.25)].CGColor,
@@ -300,24 +322,20 @@ static UIColor *getDynamicTextColor(BOOL selected) {
             }
         }
 
-        // ⑤ 子视图文字高对比自适应配色
+        // ⑥ 子视图文字高对比自适应配色与红点
         for (UIView *btnView in stack.arrangedSubviews) {
             if ([btnView isKindOfClass:[UIButton class]]) {
                 UIButton *btn = (UIButton *)btnView;
-                
                 objc_setAssociatedObject(btn, &kIsGroupTabBtnKey, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
                 [btn setTitleColor:getDynamicTextColor(NO) forState:UIControlStateNormal];
                 [btn setTitleColor:getDynamicTextColor(YES) forState:UIControlStateSelected];
                 btn.titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightMedium];
 
-                // ⑥ 红点控制
-                if (gHideRedDots) {
-                    for (UIView *subDot in btn.subviews) {
-                        if (subDot != btn.titleLabel && subDot != btn.imageView) {
-                            if (subDot.bounds.size.width <= 24 && subDot.bounds.size.height <= 24) {
-                                subDot.hidden = YES;
-                            }
+                for (UIView *subDot in btn.subviews) {
+                    if (subDot != btn.titleLabel && subDot != btn.imageView) {
+                        if (subDot.bounds.size.width <= 24 && subDot.bounds.size.height <= 24) {
+                            subDot.hidden = hideRedDots;
                         }
                     }
                 }
@@ -329,17 +347,12 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 %new
 - (void)handleLiquidBarLongPress:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state == UIGestureRecognizerStateBegan) {
-        // 轻触震动反馈
         if (@available(iOS 10.0, *)) {
             UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
             [feedback impactOccurred];
         }
-        
-        // 弹出设置页
         WeChatLiquidTabSettingViewController *vc = [[WeChatLiquidTabSettingViewController alloc] init];
         UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
-        
-        // 查找当前的 ViewController 呈现页面
         UIResponder *responder = self;
         while (responder && ![responder isKindOfClass:[UIViewController class]]) {
             responder = responder.nextResponder;
@@ -359,14 +372,16 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 %hook UIApplication
 
 - (BOOL)sendAction:(SEL)action to:(id)target from:(id)sender forEvent:(UIEvent *)event {
-    if (gEnabled && [sender isKindOfClass:[UIButton class]]) {
+    BOOL enabled = getPrefBool(K_ENABLED, YES);
+    BOOL interceptGroup = getPrefBool(K_INTERCEPT, NO);
+
+    if (enabled && [sender isKindOfClass:[UIButton class]]) {
         NSNumber *isGroupBtn = objc_getAssociatedObject(sender, &kIsGroupTabBtnKey);
         if ([isGroupBtn boolValue]) {
             UIButton *btn = (UIButton *)sender;
             NSString *title = [btn titleForState:UIControlStateNormal];
-
-            if (gInterceptGroup && [title containsString:@"群聊"]) {
-                NSLog(@"[WeChatLiquidTab] 拦截到群聊切换操作");
+            if (interceptGroup && [title containsString:@"群聊"]) {
+                NSLog(@"[WeChatLiquidTab] 已按设置拦截群聊点击");
                 return NO;
             }
         }
@@ -375,20 +390,3 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 }
 
 %end
-
-// ====================================================================
-// 初始化加载
-// ====================================================================
-%ctor {
-    @autoreleasepool {
-        loadPrefs();
-        CFNotificationCenterAddObserver(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            NULL,
-            prefsNotificationCallback,
-            CFSTR(NOTIFY_RELOAD),
-            NULL,
-            CFNotificationSuspensionBehaviorCoalesce
-        );
-    }
-}
