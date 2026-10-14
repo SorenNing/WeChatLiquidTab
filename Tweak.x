@@ -6,6 +6,9 @@
 @interface MFBannerBtn : UIButton
 @end
 
+@interface NewSettingViewController : UIViewController
+@end
+
 @interface WCTableViewSectionManager : NSObject
 + (id)sectionInfoHeader:(id)arg1;
 + (id)sectionInfoDefaut;
