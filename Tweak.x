@@ -9,22 +9,6 @@
 @interface NewSettingViewController : UIViewController
 @end
 
-@interface WCTableViewSectionManager : NSObject
-+ (id)sectionInfoHeader:(id)arg1;
-+ (id)sectionInfoDefaut;
-- (void)addCell:(id)arg1;
-@end
-
-@interface WCTableViewNormalCellManager : NSObject
-+ (id)normalCellForSel:(SEL)arg1 target:(id)arg2 title:(id)arg3 rightValue:(id)arg4 accessoryType:(long long)arg5;
-+ (id)normalCellForSel:(SEL)arg1 target:(id)arg2 title:(id)arg3 accessoryType:(long long)arg4;
-@end
-
-@interface WCTableViewManager : NSObject
-@property (retain, nonatomic) NSMutableArray *sections;
-@property (retain, nonatomic) UITableView *tableView;
-@end
-
 @interface WCPluginsViewController : UIViewController
 - (id)addNormalCellForSel:(SEL)arg1 title:(id)arg2 rightValue:(id)arg3 userInfo:(id)arg4;
 - (void)pushPluginController:(id)arg1;
@@ -74,7 +58,7 @@ static void prefsNotificationCallback(CFNotificationCenterRef center, void *obse
 }
 
 // ====================================================================
-// 动态颜色适配 (iOS 17 原生动态模式)
+// 动态色彩自适应
 // ====================================================================
 static UIColor *getDynamicGlassTint(void) {
     if (@available(iOS 13.0, *)) {
@@ -119,78 +103,19 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 }
 
 // ====================================================================
-// 1. 微信原生“设置”页面接入 (NewSettingViewController)
+// 1. 微信原生“设置”页面接入 (NewSettingViewController - 导航栏右上角安全入口)
 // ====================================================================
 %hook NewSettingViewController
 
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
 
-    // 1. 递归寻找当前视图树中的 WCTableView
-    UITableView *targetTableView = nil;
-    for (UIView *sub in self.view.subviews) {
-        if ([sub isKindOfClass:[UITableView class]]) {
-            targetTableView = (UITableView *)sub;
-            break;
-        }
-    }
-    if (!targetTableView) return;
-
-    // 2. 从 targetTableView 获取专属的 WCTableViewManager 数据源
-    id mgrObj = targetTableView.dataSource;
-    if (!mgrObj || ![mgrObj respondsToSelector:@selector(sections)]) return;
-
-    NSMutableArray *sections = [mgrObj performSelector:@selector(sections)];
-    if (!sections || ![sections isKindOfClass:[NSMutableArray class]]) return;
-
-    // 3. 查重，避免重复添加
-    BOOL alreadyAdded = NO;
-    for (id sec in sections) {
-        if ([[sec description] containsString:@"液态玻璃"]) {
-            alreadyAdded = YES;
-            break;
-        }
-    }
-
-    if (!alreadyAdded) {
-        Class secClass = objc_getClass("WCTableViewSectionManager") ?: objc_getClass("MMTableViewSectionInfo");
-        Class cellClass = objc_getClass("WCTableViewNormalCellManager") ?: objc_getClass("MMTableViewCellInfo");
-
-        id sec = nil;
-        if ([secClass respondsToSelector:@selector(sectionInfoHeader:)]) {
-            sec = [secClass performSelector:@selector(sectionInfoHeader:) withObject:@"插件功能"];
-        } else if ([secClass respondsToSelector:@selector(sectionInfoDefaut)]) {
-            sec = [secClass performSelector:@selector(sectionInfoDefaut)];
-        }
-
-        id cell = nil;
-        if ([cellClass respondsToSelector:@selector(normalCellForSel:target:title:rightValue:accessoryType:)]) {
-            NSMethodSignature *sig = [cellClass methodSignatureForSelector:@selector(normalCellForSel:target:title:rightValue:accessoryType:)];
-            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-            [inv setTarget:cellClass];
-            [inv setSelector:@selector(normalCellForSel:target:title:rightValue:accessoryType:)];
-            SEL actionSel = @selector(openWeChatLiquidTabSettings);
-            id targetObj = self;
-            NSString *titleStr = @"液态玻璃";
-            NSString *valStr = @"0.2.2";
-            long long accType = 1;
-            [inv setArgument:&actionSel atIndex:2];
-            [inv setArgument:&targetObj atIndex:3];
-            [inv setArgument:&titleStr atIndex:4];
-            [inv setArgument:&valStr atIndex:5];
-            [inv setArgument:&accType atIndex:6];
-            [inv invoke];
-            [inv getReturnValue:&cell];
-        }
-
-        if (sec && cell) {
-            [sec performSelector:@selector(addCell:) withObject:cell];
-            // 插入在通用分组上方 (第1组)
-            NSUInteger insertIdx = (sections.count > 1 ? 1 : sections.count);
-            [sections insertObject:sec atIndex:insertIdx];
-            [targetTableView reloadData];
-        }
-    }
+    // 在右上角挂载设置按钮，零侵入表格，绝对不闪退
+    UIBarButtonItem *btn = [[UIBarButtonItem alloc] initWithTitle:@"液态玻璃" 
+                                                           style:UIBarButtonItemStylePlain 
+                                                          target:self 
+                                                          action:@selector(openWeChatLiquidTabSettings)];
+    self.navigationItem.rightBarButtonItem = btn;
 }
 
 %new
@@ -221,9 +146,8 @@ static UIColor *getDynamicTextColor(BOOL selected) {
     if (!found) {
         [self addNormalCellForSel:@selector(openWeChatLiquidTabSettings) 
                             title:@"液态玻璃" 
-                       rightValue:@"0.2.2" 
+                       rightValue:@"0.2.3" 
                          userInfo:nil];
-        [self reloadTableData];
     }
 }
 
@@ -240,7 +164,7 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 %end
 
 // ====================================================================
-// 3. 真正的苹果液态玻璃渲染 (MFBannerBtn)
+// 3. 真正的苹果液态玻璃渲染 (MFBannerBtn) + 长按快捷呼出设置
 // ====================================================================
 %hook MFBannerBtn
 
@@ -249,28 +173,17 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 
     if (!gEnabled) return;
 
-    // ① 彻底清除外层所有生硬的死板灰圈（向上递归遍历，包括 MMTableViewCell）
+    // ① 清除原本生硬的外层灰色轨道（仅改背景色，避免破坏 UIKit 内部结构）
     if (gClearOuterTrack) {
         self.backgroundColor = [UIColor clearColor];
         self.layer.backgroundColor = nil;
         self.layer.borderWidth = 0.0;
-        self.layer.borderColor = nil;
         self.layer.shadowOpacity = 0.0;
-        [self setBackgroundImage:nil forState:UIControlStateNormal];
 
-        // 向上清理所有的父容器背景色，直到列表本身
         UIView *parent = self.superview;
         while (parent && ![parent isKindOfClass:[UITableView class]]) {
             parent.backgroundColor = [UIColor clearColor];
             parent.layer.backgroundColor = nil;
-            if ([parent isKindOfClass:[UITableViewCell class]]) {
-                UITableViewCell *cell = (UITableViewCell *)parent;
-                cell.backgroundColor = [UIColor clearColor];
-                cell.contentView.backgroundColor = [UIColor clearColor];
-                cell.backgroundView = nil;
-                cell.selectedBackgroundView = nil;
-                cell.layer.backgroundColor = nil;
-            }
             parent = parent.superview;
         }
     }
@@ -292,6 +205,13 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 
         v.backgroundColor = [UIColor clearColor];
         v.layer.backgroundColor = nil;
+
+        // 添加长按手势（0.6s 长按分组栏直接呼出液态玻璃设置页）
+        if (v.gestureRecognizers.count == 0) {
+            UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLiquidBarLongPress:)];
+            longPress.minimumPressDuration = 0.6;
+            [v addGestureRecognizer:longPress];
+        }
 
         // ③ 实时背景透视材质 (Live Material)
         UIVisualEffectView *blurView = (UIVisualEffectView *)[v viewWithTag:BLUR_EFFECT_TAG];
@@ -402,6 +322,31 @@ static UIColor *getDynamicTextColor(BOOL selected) {
                     }
                 }
             }
+        }
+    }
+}
+
+%new
+- (void)handleLiquidBarLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        // 轻触震动反馈
+        if (@available(iOS 10.0, *)) {
+            UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
+            [feedback impactOccurred];
+        }
+        
+        // 弹出设置页
+        WeChatLiquidTabSettingViewController *vc = [[WeChatLiquidTabSettingViewController alloc] init];
+        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+        
+        // 查找当前的 ViewController 呈现页面
+        UIResponder *responder = self;
+        while (responder && ![responder isKindOfClass:[UIViewController class]]) {
+            responder = responder.nextResponder;
+        }
+        if ([responder isKindOfClass:[UIViewController class]]) {
+            UIViewController *currentVC = (UIViewController *)responder;
+            [currentVC presentViewController:nav animated:YES completion:nil];
         }
     }
 }
