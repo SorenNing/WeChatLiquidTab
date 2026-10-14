@@ -6,34 +6,26 @@
 @interface MFBannerBtn : UIButton
 @end
 
-// 微信原生设置相关类声明
-@interface MMTableViewSectionInfo : NSObject
-+ (id)sectionInfoDefaut;
+@interface WCTableViewSectionManager : NSObject
 + (id)sectionInfoHeader:(id)arg1;
-+ (id)sectionInfoHeader:(id)arg1 Footer:(id)arg2;
++ (id)sectionInfoDefaut;
 - (void)addCell:(id)arg1;
 @end
 
-@interface MMTableViewCellInfo : NSObject
+@interface WCTableViewNormalCellManager : NSObject
 + (id)normalCellForSel:(SEL)arg1 target:(id)arg2 title:(id)arg3 rightValue:(id)arg4 accessoryType:(long long)arg5;
++ (id)normalCellForSel:(SEL)arg1 target:(id)arg2 title:(id)arg3 accessoryType:(long long)arg4;
 @end
 
-@interface MMTableViewInfo : NSObject
-- (void)insertSection:(id)arg1 At:(unsigned int)arg2;
-- (void)addSection:(id)arg1;
-- (id)getTableView;
-@end
-
-@interface NewSettingViewController : UIViewController
-{
-    MMTableViewInfo *m_tableViewInfo;
-}
-- (void)reloadTableData;
+@interface WCTableViewManager : NSObject
+@property (retain, nonatomic) NSMutableArray *sections;
+@property (retain, nonatomic) UITableView *tableView;
 @end
 
 @interface WCPluginsViewController : UIViewController
 - (id)addNormalCellForSel:(SEL)arg1 title:(id)arg2 rightValue:(id)arg3 userInfo:(id)arg4;
 - (void)pushPluginController:(id)arg1;
+- (void)reloadTableData;
 - (NSMutableArray *)dataSource;
 @end
 
@@ -128,25 +120,74 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 // ====================================================================
 %hook NewSettingViewController
 
-- (void)reloadTableData {
+- (void)viewWillAppear:(BOOL)animated {
     %orig;
 
-    id tableViewInfo = [self valueForKey:@"m_tableViewInfo"];
-    if (!tableViewInfo) return;
+    // 1. 递归寻找当前视图树中的 WCTableView
+    UITableView *targetTableView = nil;
+    for (UIView *sub in self.view.subviews) {
+        if ([sub isKindOfClass:[UITableView class]]) {
+            targetTableView = (UITableView *)sub;
+            break;
+        }
+    }
+    if (!targetTableView) return;
 
-    // 创建专属设置分组
-    MMTableViewSectionInfo *section = [%c(MMTableViewSectionInfo) sectionInfoHeader:@"插件增强"];
-    MMTableViewCellInfo *cell = [%c(MMTableViewCellInfo) normalCellForSel:@selector(openWeChatLiquidTabSettings) 
-                                                                  target:self 
-                                                                   title:@"液态玻璃" 
-                                                              rightValue:@"0.2.0" 
-                                                           accessoryType:1];
-    [section addCell:cell];
+    // 2. 从 targetTableView 获取专属的 WCTableViewManager 数据源
+    id mgrObj = targetTableView.dataSource;
+    if (!mgrObj || ![mgrObj respondsToSelector:@selector(sections)]) return;
 
-    // 插入在第 1 组（账号安全下面）
-    [tableViewInfo insertSection:section At:1];
+    NSMutableArray *sections = [mgrObj performSelector:@selector(sections)];
+    if (!sections || ![sections isKindOfClass:[NSMutableArray class]]) return;
 
-    [[tableViewInfo getTableView] reloadData];
+    // 3. 查重，避免重复添加
+    BOOL alreadyAdded = NO;
+    for (id sec in sections) {
+        if ([[sec description] containsString:@"液态玻璃"]) {
+            alreadyAdded = YES;
+            break;
+        }
+    }
+
+    if (!alreadyAdded) {
+        Class secClass = objc_getClass("WCTableViewSectionManager") ?: objc_getClass("MMTableViewSectionInfo");
+        Class cellClass = objc_getClass("WCTableViewNormalCellManager") ?: objc_getClass("MMTableViewCellInfo");
+
+        id sec = nil;
+        if ([secClass respondsToSelector:@selector(sectionInfoHeader:)]) {
+            sec = [secClass performSelector:@selector(sectionInfoHeader:) withObject:@"插件功能"];
+        } else if ([secClass respondsToSelector:@selector(sectionInfoDefaut)]) {
+            sec = [secClass performSelector:@selector(sectionInfoDefaut)];
+        }
+
+        id cell = nil;
+        if ([cellClass respondsToSelector:@selector(normalCellForSel:target:title:rightValue:accessoryType:)]) {
+            NSMethodSignature *sig = [cellClass methodSignatureForSelector:@selector(normalCellForSel:target:title:rightValue:accessoryType:)];
+            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+            [inv setTarget:cellClass];
+            [inv setSelector:@selector(normalCellForSel:target:title:rightValue:accessoryType:)];
+            SEL actionSel = @selector(openWeChatLiquidTabSettings);
+            id targetObj = self;
+            NSString *titleStr = @"液态玻璃";
+            NSString *valStr = @"0.2.2";
+            long long accType = 1;
+            [inv setArgument:&actionSel atIndex:2];
+            [inv setArgument:&targetObj atIndex:3];
+            [inv setArgument:&titleStr atIndex:4];
+            [inv setArgument:&valStr atIndex:5];
+            [inv setArgument:&accType atIndex:6];
+            [inv invoke];
+            [inv getReturnValue:&cell];
+        }
+
+        if (sec && cell) {
+            [sec performSelector:@selector(addCell:) withObject:cell];
+            // 插入在通用分组上方 (第1组)
+            NSUInteger insertIdx = (sections.count > 1 ? 1 : sections.count);
+            [sections insertObject:sec atIndex:insertIdx];
+            [targetTableView reloadData];
+        }
+    }
 }
 
 %new
@@ -162,7 +203,7 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 // ====================================================================
 %hook WCPluginsViewController
 
-- (void)initData {
+- (void)viewWillAppear:(BOOL)animated {
     %orig;
 
     NSMutableArray *ds = [self dataSource];
@@ -177,8 +218,9 @@ static UIColor *getDynamicTextColor(BOOL selected) {
     if (!found) {
         [self addNormalCellForSel:@selector(openWeChatLiquidTabSettings) 
                             title:@"液态玻璃" 
-                       rightValue:@"0.2.0" 
+                       rightValue:@"0.2.2" 
                          userInfo:nil];
+        [self reloadTableData];
     }
 }
 
@@ -204,7 +246,7 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 
     if (!gEnabled) return;
 
-    // ① 彻底清除外层死板的跑道灰色底座与外圈边框
+    // ① 彻底清除外层所有生硬的死板灰圈（向上递归遍历，包括 MMTableViewCell）
     if (gClearOuterTrack) {
         self.backgroundColor = [UIColor clearColor];
         self.layer.backgroundColor = nil;
@@ -213,11 +255,19 @@ static UIColor *getDynamicTextColor(BOOL selected) {
         self.layer.shadowOpacity = 0.0;
         [self setBackgroundImage:nil forState:UIControlStateNormal];
 
-        // 清理直接父级 UITableViewCellContentView 和 MMTableViewCell 的多余灰色
+        // 向上清理所有的父容器背景色，直到列表本身
         UIView *parent = self.superview;
         while (parent && ![parent isKindOfClass:[UITableView class]]) {
             parent.backgroundColor = [UIColor clearColor];
             parent.layer.backgroundColor = nil;
+            if ([parent isKindOfClass:[UITableViewCell class]]) {
+                UITableViewCell *cell = (UITableViewCell *)parent;
+                cell.backgroundColor = [UIColor clearColor];
+                cell.contentView.backgroundColor = [UIColor clearColor];
+                cell.backgroundView = nil;
+                cell.selectedBackgroundView = nil;
+                cell.layer.backgroundColor = nil;
+            }
             parent = parent.superview;
         }
     }
