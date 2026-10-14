@@ -6,6 +6,31 @@
 @interface MFBannerBtn : UIButton
 @end
 
+// 微信原生设置相关类声明
+@interface MMTableViewSectionInfo : NSObject
++ (id)sectionInfoDefaut;
++ (id)sectionInfoHeader:(id)arg1;
++ (id)sectionInfoHeader:(id)arg1 Footer:(id)arg2;
+- (void)addCell:(id)arg1;
+@end
+
+@interface MMTableViewCellInfo : NSObject
++ (id)normalCellForSel:(SEL)arg1 target:(id)arg2 title:(id)arg3 rightValue:(id)arg4 accessoryType:(long long)arg5;
+@end
+
+@interface MMTableViewInfo : NSObject
+- (void)insertSection:(id)arg1 At:(unsigned int)arg2;
+- (void)addSection:(id)arg1;
+- (id)getTableView;
+@end
+
+@interface NewSettingViewController : UIViewController
+{
+    MMTableViewInfo *m_tableViewInfo;
+}
+- (void)reloadTableData;
+@end
+
 @interface WCPluginsViewController : UIViewController
 - (id)addNormalCellForSel:(SEL)arg1 title:(id)arg2 rightValue:(id)arg3 userInfo:(id)arg4;
 - (void)pushPluginController:(id)arg1;
@@ -73,9 +98,9 @@ static UIColor *getDynamicRimBorderColor(void) {
     if (@available(iOS 13.0, *)) {
         return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
             if (traits.userInterfaceStyle == UIUserInterfaceStyleDark) {
-                return [UIColor colorWithWhite:1.0 alpha:0.35]; // 深色高光银边
+                return [UIColor colorWithWhite:1.0 alpha:0.35];
             } else {
-                return [UIColor colorWithWhite:1.0 alpha:0.75]; // 浅色晶莹亮边
+                return [UIColor colorWithWhite:1.0 alpha:0.75];
             }
         }];
     }
@@ -90,7 +115,7 @@ static UIColor *getDynamicTextColor(BOOL selected) {
                 return isDark ? [UIColor colorWithRed:0.35 green:0.75 blue:1.0 alpha:1.0] 
                               : [UIColor colorWithRed:0.00 green:0.45 blue:0.95 alpha:1.0];
             } else {
-                return isDark ? [UIColor colorWithWhite:0.95 alpha:1.0] // 晶莹纯白，拒绝暗黑死黑
+                return isDark ? [UIColor colorWithWhite:0.95 alpha:1.0]
                               : [UIColor colorWithWhite:0.20 alpha:1.0];
             }
         }];
@@ -99,14 +124,47 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 }
 
 // ====================================================================
-// 1. 微信内部插件中心接入 (WCPluginsViewController)
+// 1. 微信原生“设置”页面接入 (NewSettingViewController)
+// ====================================================================
+%hook NewSettingViewController
+
+- (void)reloadTableData {
+    %orig;
+
+    MMTableViewInfo *tableViewInfo = MSHookIvar<MMTableViewInfo *>(self, "m_tableViewInfo");
+    if (!tableViewInfo) return;
+
+    // 创建专属设置分组
+    MMTableViewSectionInfo *section = [%c(MMTableViewSectionInfo) sectionInfoHeader:@"插件增强"];
+    MMTableViewCellInfo *cell = [%c(MMTableViewCellInfo) normalCellForSel:@selector(openWeChatLiquidTabSettings) 
+                                                                  target:self 
+                                                                   title:@"液态玻璃" 
+                                                              rightValue:@"0.2.0" 
+                                                           accessoryType:1];
+    [section addCell:cell];
+
+    // 插入在第 1 组（账号安全下面）
+    [tableViewInfo insertSection:section At:1];
+
+    [[tableViewInfo getTableView] reloadData];
+}
+
+%new
+- (void)openWeChatLiquidTabSettings {
+    WeChatLiquidTabSettingViewController *vc = [[WeChatLiquidTabSettingViewController alloc] init];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+%end
+
+// ====================================================================
+// 2. 微信内部插件中心接入 (WCPluginsViewController)
 // ====================================================================
 %hook WCPluginsViewController
 
 - (void)initData {
     %orig;
 
-    // 检查是否已经添加，避免重复叠加
     NSMutableArray *ds = [self dataSource];
     BOOL found = NO;
     for (id item in ds) {
@@ -137,7 +195,7 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 %end
 
 // ====================================================================
-// 2. 真正的苹果液态玻璃渲染 (MFBannerBtn)
+// 3. 真正的苹果液态玻璃渲染 (MFBannerBtn)
 // ====================================================================
 %hook MFBannerBtn
 
@@ -146,14 +204,21 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 
     if (!gEnabled) return;
 
-    // ① 清除原本生硬的外层灰框与阴影，实现一体化水滴
+    // ① 彻底清除外层死板的跑道灰色底座与外圈边框
     if (gClearOuterTrack) {
         self.backgroundColor = [UIColor clearColor];
         self.layer.backgroundColor = nil;
         self.layer.borderWidth = 0.0;
+        self.layer.borderColor = nil;
         self.layer.shadowOpacity = 0.0;
-        if (self.superview) {
-            self.superview.backgroundColor = [UIColor clearColor];
+        [self setBackgroundImage:nil forState:UIControlStateNormal];
+
+        // 清理直接父级 UITableViewCellContentView 和 MMTableViewCell 的多余灰色
+        UIView *parent = self.superview;
+        while (parent && ![parent isKindOfClass:[UITableView class]]) {
+            parent.backgroundColor = [UIColor clearColor];
+            parent.layer.backgroundColor = nil;
+            parent = parent.superview;
         }
     }
 
@@ -210,13 +275,11 @@ static UIColor *getDynamicTextColor(BOOL selected) {
                 glassOverlay.layer.cornerCurve = kCACornerCurveContinuous;
             }
 
-            // 边缘反光倒角 (Rim Light)
             if (gEnableRimLight) {
                 glassOverlay.layer.borderWidth = gRimBorderWidth;
                 glassOverlay.layer.borderColor = getDynamicRimBorderColor().CGColor;
             }
 
-            // 顶部月牙形凸面反光 (Specular Gloss)
             if (gEnableSpecular) {
                 CAGradientLayer *glossLayer = [CAGradientLayer layer];
                 glossLayer.name = GLOSS_LAYER_NAME;
@@ -233,7 +296,6 @@ static UIColor *getDynamicTextColor(BOOL selected) {
                 [glassOverlay.layer addSublayer:glossLayer];
             }
 
-            // 环境立体悬浮微阴影
             v.layer.shadowColor = [UIColor blackColor].CGColor;
             v.layer.shadowOpacity = 0.15;
             v.layer.shadowRadius = 10.0;
@@ -248,7 +310,6 @@ static UIColor *getDynamicTextColor(BOOL selected) {
             if (gEnableRimLight) {
                 glassOverlay.layer.borderColor = getDynamicRimBorderColor().CGColor;
             }
-            // 实时更新高光尺寸和透明度
             for (CALayer *sublayer in glassOverlay.layer.sublayers) {
                 if ([sublayer.name isEqualToString:GLOSS_LAYER_NAME]) {
                     sublayer.frame = CGRectMake(0, 0, v.bounds.size.width, h * 0.58);
@@ -295,7 +356,7 @@ static UIColor *getDynamicTextColor(BOOL selected) {
 %end
 
 // ====================================================================
-// 3. 点击事件拦截
+// 4. 点击事件拦截
 // ====================================================================
 %hook UIApplication
 
