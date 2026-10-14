@@ -1,0 +1,43 @@
+name: build-wechat-liquid-tab
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  roothide-package:
+    runs-on: macos-14
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Checkout roothide Theos
+        uses: actions/checkout@v4
+        with:
+          repository: roothide/theos
+          ref: cfba89a53a05b4a1b822121158acc3669c20602f
+          path: theos
+          submodules: recursive
+
+      - name: Download iPhoneOS 16.5 SDK
+        run: |
+          curl -L --fail -o sdk.tar.xz https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz
+          mkdir -p theos/sdks
+          tar -xJf sdk.tar.xz -C theos/sdks
+          rm sdk.tar.xz
+
+      - name: Install tools
+        run: brew install ldid make dpkg
+
+      - name: Build roothide DEB
+        run: |
+          export THEOS="$GITHUB_WORKSPACE/theos"
+          export PATH="$(brew --prefix make)/libexec/gnubin:$PATH"
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeChatLiquidTab-roothide-deb
+          path: packages/*.deb

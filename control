@@ -1,0 +1,9 @@
+Package: com.soren.wechatliquidtab
+Name: WeChat Liquid Tab
+Depends: mobilesubstrate (>= 0.9.5000)
+Version: 0.1.0
+Architecture: iphoneos-arm64e
+Description: 微信消息分组栏液态玻璃美化与点击拦截
+Maintainer: Soren
+Author: Soren
+Section: Tweaks
