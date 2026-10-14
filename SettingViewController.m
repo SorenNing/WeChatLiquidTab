@@ -1,4 +1,5 @@
 #import "SettingViewController.h"
+#import <objc/runtime.h>
 
 #define PREF_PATH @"/var/mobile/Library/Preferences/com.soren.wechatliquidtab.plist"
 #define NOTIFY_RELOAD "com.soren.wechatliquidtab/Reload"
@@ -24,7 +25,6 @@
     } else {
         self.prefs = [NSMutableDictionary dictionary];
     }
-    // 默认值
     if (!self.prefs[@"enabled"]) self.prefs[@"enabled"] = @(YES);
     if (!self.prefs[@"clearOuterTrack"]) self.prefs[@"clearOuterTrack"] = @(YES);
     if (!self.prefs[@"enableLiveBlur"]) self.prefs[@"enableLiveBlur"] = @(YES);
@@ -94,7 +94,7 @@
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.section == 1 && (indexPath.row == 1 || indexPath.row == 3 || indexPath.row == 5)) {
-        return 70.0; // 滑块行高
+        return 70.0;
     }
     return 50.0;
 }
@@ -107,8 +107,7 @@
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
     }
 
-    // 辅助创建 Switch
-    auto createSwitch = ^(NSString *key) {
+    void (^createSwitch)(NSString *) = ^(NSString *key) {
         UISwitch *sw = [[UISwitch alloc] init];
         sw.on = [self.prefs[key] boolValue];
         [sw addTarget:self action:@selector(switchAction:) forControlEvents:UIControlEventValueChanged];
@@ -116,8 +115,7 @@
         cell.accessoryView = sw;
     };
 
-    // 辅助创建 Slider + Value
-    auto createSlider = ^(NSString *key, float min, float max, NSString *fmt) {
+    void (^createSlider)(NSString *, float, float, NSString *) = ^(NSString *key, float min, float max, NSString *fmt) {
         UIView *sliderBox = [[UIView alloc] initWithFrame:CGRectMake(16, 0, tableView.bounds.size.width - 32, 64)];
         UILabel *valLbl = [[UILabel alloc] initWithFrame:CGRectMake(sliderBox.bounds.size.width - 70, 4, 60, 20)];
         valLbl.font = [UIFont systemFontOfSize:13 weight:UIFontWeightRegular];
