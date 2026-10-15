@@ -110,12 +110,12 @@ void WGAttachSettingsEntry(UIViewController *controller) {
 }
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)path {
     NSDictionary *g=WGGroupConfigs()[path.row]; if (![g[@"isCustom"] boolValue]) return nil;
-    UIContextualAction *delete = [UIContextualAction actionWithStyle:UIContextualActionStyleDestructive title:@"删除" handler:^(__unused UIContextualAction *a, __unused UIView *v, void (^done)(BOOL)) { WGDeleteCustomGroup(g[@"name"]); [tableView reloadData]; done(YES); }];
+    UIContextualAction *delete = [[UIContextualAction alloc] initWithStyle:UIContextualActionStyleDestructive title:@"删除" handler:^(__unused UIContextualAction *a, __unused UIView *v, void (^done)(BOOL)) { WGDeleteCustomGroup(g[@"name"]); [tableView reloadData]; done(YES); }];
     return [UISwipeActionsConfiguration configurationWithActions:@[delete]];
 }
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView leadingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)path {
     NSDictionary *g=WGGroupConfigs()[path.row]; if (![g[@"isCustom"] boolValue]) return nil;
-    UIContextualAction *edit = [UIContextualAction actionWithStyle:UIContextualActionStyleNormal title:@"成员" handler:^(__unused UIContextualAction *a, __unused UIView *v, void (^done)(BOOL)) { [self editMembers:g]; done(YES); }];
+    UIContextualAction *edit = [[UIContextualAction alloc] initWithStyle:UIContextualActionStyleNormal title:@"成员" handler:^(__unused UIContextualAction *a, __unused UIView *v, void (^done)(BOOL)) { [self editMembers:g]; done(YES); }];
     return [UISwipeActionsConfiguration configurationWithActions:@[edit]];
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)path { NSDictionary*g=WGGroupConfigs()[path.row]; WGSetGroupVisible(g[@"name"], ![g[@"visible"] boolValue]); [tableView reloadData]; }
