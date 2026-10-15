@@ -3,7 +3,7 @@ name: build-wechat-group-extractor
 on:
   workflow_dispatch:
   push:
-    branches: [WeChatGroupExtractor]
+    branches: [FenzuReplica]
 
 permissions:
   contents: read
