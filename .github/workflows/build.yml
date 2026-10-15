@@ -15,9 +15,8 @@ jobs:
         run: |
           export THEOS=/Users/runner/theos
           export THEOS_PACKAGE_SCHEME=roothide
-          rm -rf $THEOS $THEOS/sdks
+          rm -rf $THEOS
           git clone --depth 1 https://github.com/theos/theos.git $THEOS
-          git clone --depth 1 https://github.com/theos/sdks.git $THEOS/sdks
           echo "THEOS=$THEOS" >> $GITHUB_ENV
       - name: Build roothide package
         run: |
