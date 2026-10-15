@@ -258,7 +258,7 @@ static char kCustomBarKey;
 
     if (!getPrefBool(K_ENABLED, YES)) return;
 
-    UITableView *table = MSHookIvar<UITableView *>(self, "m_tableView");
+    UITableView *table = [self valueForKey:@"m_tableView"];
     if (!table) return;
 
     // 自主创建顶部 HeaderView
@@ -273,7 +273,7 @@ static char kCustomBarKey;
     __weak typeof(self) weakSelf = self;
     bar.onFilterChanged = ^(WCLiquidFilterType type) {
         gActiveFilter = type;
-        UITableView *tb = MSHookIvar<UITableView *>(weakSelf, "m_tableView");
+        UITableView *tb = [weakSelf valueForKey:@"m_tableView"];
         [tb reloadData];
     };
 
@@ -300,7 +300,7 @@ static char kCustomBarKey;
     if (bar) {
         [bar updateThemeAndStyle];
     }
-    UITableView *tb = MSHookIvar<UITableView *>(self, "m_tableView");
+    UITableView *tb = [self valueForKey:@"m_tableView"];
     [tb reloadData];
 }
 
