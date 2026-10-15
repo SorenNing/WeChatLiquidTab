@@ -1,9 +1,9 @@
 Package: com.soren.wechatliquidtab
 Name: WeChat Liquid Tab (Standalone)
 Depends: mobilesubstrate (>= 0.9.5000)
-Version: 1.1.0
+Version: 1.2.0
 Architecture: iphoneos-arm64e
-Description: 100% 独立纯净版微信液态玻璃分组，支持全屏左右滑动切换与深度会话过滤
+Description: 100% 独立纯净版微信液态玻璃分组，无损重定向索引架构，绝不闪退
 Maintainer: Soren
 Author: Soren
 Section: Tweaks

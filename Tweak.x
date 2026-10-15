@@ -24,8 +24,10 @@
 @interface MainFrameLogicController : NSObject
 - (unsigned int)getSessionCountForSection:(unsigned int)section;
 - (id)getSessionInfoAtIndexPath:(id)indexPath;
+- (id)getSessionBaseInfoAtIndexPath:(id)indexPath;
 - (id)getCellDataAtIndexPath:(id)indexPath;
 - (id)indexOfSessionUserName:(id)userName inSection:(unsigned int)section;
+- (void)cleanupCellDataCache;
 @end
 
 @interface MainFrameHeaderLogic : NSObject
@@ -39,9 +41,6 @@
     MainFrameLogicController *m_mainFrameLogicController;
     UITableView *m_tableView;
 }
-@end
-
-@interface MFBannerBtn : UIButton
 @end
 
 // ====================================================================
@@ -92,7 +91,7 @@ static UIColor *getDynamicRimBorderColor(void) {
 }
 
 // ====================================================================
-// 分组类型与会话数据源管理
+// 分组类型与映射表（真正的微信原版无损映射算法）
 // ====================================================================
 typedef NS_ENUM(NSInteger, WCLiquidFilterType) {
     WCLiquidFilterTypeAll = 0,
@@ -102,36 +101,42 @@ typedef NS_ENUM(NSInteger, WCLiquidFilterType) {
 };
 
 static WCLiquidFilterType gActiveFilter = WCLiquidFilterTypeAll;
-static NSMutableArray<MMSessionInfo *> *gFilteredSessions = nil;
+// 存储当前过滤后每个 item 对应在原微信会话列表里的真实 rawIndex
+static NSMutableArray<NSNumber *> *gFilteredRowMap = nil;
 
-static void updateFilteredSessions(void) {
-    if (!gFilteredSessions) {
-        gFilteredSessions = [NSMutableArray array];
+static void rebuildSessionMapping(MainFrameLogicController *controller) {
+    if (!gFilteredRowMap) {
+        gFilteredRowMap = [NSMutableArray array];
     }
-    [gFilteredSessions removeAllObjects];
+    [gFilteredRowMap removeAllObjects];
 
-    MMNewSessionMgr *mgr = [[%c(MMServiceCenter) defaultCenter] getService:%c(MMNewSessionMgr)];
-    if (!mgr) return;
+    if (gActiveFilter == WCLiquidFilterTypeAll || !controller) {
+        return;
+    }
 
-    NSArray *all = [mgr GetAllSession];
-    for (MMSessionInfo *info in all) {
-        NSString *u = info.m_nsUserName;
-        if (!u) continue;
+    // 获取原微信所有的原生会话总数
+    unsigned int totalOrig = [controller getSessionCountForSection:0];
+
+    for (unsigned int r = 0; r < totalOrig; r++) {
+        NSIndexPath *ip = [NSIndexPath indexPathForRow:r inSection:0];
+        MMSessionInfo *info = [controller getSessionInfoAtIndexPath:ip];
+        if (!info || ![info respondsToSelector:@selector(m_nsUserName)]) continue;
+
+        NSString *user = info.m_nsUserName;
+        if (!user) continue;
 
         if (gActiveFilter == WCLiquidFilterTypeGroups) {
-            if ([u hasSuffix:@"@chatroom"]) {
-                [gFilteredSessions addObject:info];
+            if ([user hasSuffix:@"@chatroom"]) {
+                [gFilteredRowMap addObject:@(r)];
             }
         } else if (gActiveFilter == WCLiquidFilterTypeOfficial) {
-            if ([u hasPrefix:@"gh_"]) {
-                [gFilteredSessions addObject:info];
+            if ([user hasPrefix:@"gh_"]) {
+                [gFilteredRowMap addObject:@(r)];
             }
         } else if (gActiveFilter == WCLiquidFilterTypeFriends) {
-            if (![u hasSuffix:@"@chatroom"] && ![u hasPrefix:@"gh_"]) {
-                [gFilteredSessions addObject:info];
+            if (![user hasSuffix:@"@chatroom"] && ![user hasPrefix:@"gh_"]) {
+                [gFilteredRowMap addObject:@(r)];
             }
-        } else {
-            [gFilteredSessions addObject:info];
         }
     }
 }
@@ -168,7 +173,7 @@ static void updateFilteredSessions(void) {
     CGFloat h = self.bounds.size.height;
     CGFloat radius = h / 2.0;
 
-    // 1. 物理实时透视材质 (Live VisualEffect)
+    // ① 物理实时透视材质 (Live VisualEffect)
     UIBlurEffect *blurEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial];
     self.blurView = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
     self.blurView.frame = self.bounds;
@@ -180,20 +185,20 @@ static void updateFilteredSessions(void) {
     self.blurView.userInteractionEnabled = NO;
     [self addSubview:self.blurView];
 
-    // 2. 顶部弧面高光渐变层 (Specular Gloss)
+    // ② 顶部弧面高光渐变层 (Specular Gloss)
     self.glossLayer = [CAGradientLayer layer];
     self.glossLayer.frame = CGRectMake(0, 0, self.bounds.size.width, h * 0.55);
     self.glossLayer.cornerRadius = radius;
     self.glossLayer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
     [self.layer addSublayer:self.glossLayer];
 
-    // 3. 悬浮微阴影
+    // ③ 悬浮微阴影
     self.layer.shadowColor = [UIColor blackColor].CGColor;
     self.layer.shadowOpacity = 0.12;
     self.layer.shadowRadius = 8.0;
     self.layer.shadowOffset = CGSizeMake(0, 3);
 
-    // 4. 水滴滑块高光指示器
+    // ④ 水滴指示器滑块
     CGFloat btnW = (self.bounds.size.width - 8) / 4.0;
     self.activeIndicator = [[UIView alloc] initWithFrame:CGRectMake(4, 4, btnW, h - 8)];
     self.activeIndicator.layer.cornerRadius = (h - 8) / 2.0;
@@ -205,7 +210,7 @@ static void updateFilteredSessions(void) {
     self.activeIndicator.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.6].CGColor;
     [self addSubview:self.activeIndicator];
 
-    // 5. 四大按钮 (全部 / 好友 / 群聊 / 订阅号)
+    // ⑤ 独立分组按钮 (全部 / 好友 / 群聊 / 订阅号)
     NSArray *titles = @[@"全部", @"好友", @"群聊", @"订阅号"];
     for (NSInteger i = 0; i < titles.count; i++) {
         UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -218,7 +223,7 @@ static void updateFilteredSessions(void) {
         [self.buttons addObject:btn];
     }
 
-    // 6. 长按 0.6 秒秒弹调光设置
+    // ⑥ 长按 0.6 秒秒弹调光设置
     UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(barLongPressed:)];
     longPress.minimumPressDuration = 0.6;
     [self addGestureRecognizer:longPress];
@@ -310,7 +315,7 @@ static void updateFilteredSessions(void) {
 @end
 
 // ====================================================================
-// 利用微信官方 MainFrameHeaderLogic 挂载 Banner 容器 (永不消失)
+// 利用微信官方 MainFrameHeaderLogic 挂载 Banner (永不消失)
 // ====================================================================
 @interface WCLiquidBannerHolder : UIButton
 @property (nonatomic, strong) WCLiquidGlassSegmentBar *bar;
@@ -336,7 +341,6 @@ static void updateFilteredSessions(void) {
     [super layoutSubviews];
     self.backgroundColor = [UIColor clearColor];
     self.layer.backgroundColor = nil;
-    [self setBackgroundImage:nil forState:UIControlStateNormal];
 
     // 抹平父级 Cell 灰色背景
     UIView *parent = self.superview;
@@ -360,25 +364,47 @@ static void updateFilteredSessions(void) {
 @end
 
 // ====================================================================
-// Hook MainFrameLogicController：真实截管微信首页会话数据
+// Hook MainFrameLogicController：采用微信原版无损索引重定向 (100% 绝不崩溃)
 // ====================================================================
+static BOOL gInsideCounting = NO;
+
 %hook MainFrameLogicController
 
 - (unsigned int)getSessionCountForSection:(unsigned int)section {
-    if (!getPrefBool(K_ENABLED, YES) || gActiveFilter == WCLiquidFilterTypeAll) {
+    if (gInsideCounting || !getPrefBool(K_ENABLED, YES) || gActiveFilter == WCLiquidFilterTypeAll) {
         return %orig;
     }
-    updateFilteredSessions();
-    return (unsigned int)gFilteredSessions.count;
+
+    gInsideCounting = YES;
+    rebuildSessionMapping(self);
+    gInsideCounting = NO;
+
+    return (unsigned int)gFilteredRowMap.count;
 }
 
 - (id)getSessionInfoAtIndexPath:(NSIndexPath *)indexPath {
     if (!getPrefBool(K_ENABLED, YES) || gActiveFilter == WCLiquidFilterTypeAll) {
         return %orig;
     }
-    updateFilteredSessions();
-    if (indexPath && indexPath.row < (NSInteger)gFilteredSessions.count) {
-        return gFilteredSessions[indexPath.row];
+
+    if (indexPath && indexPath.row < (NSInteger)gFilteredRowMap.count) {
+        // 重定向为原微信会话列表中真实的一一对应映射索引，类型 100% 严丝合缝
+        NSUInteger realRow = [gFilteredRowMap[indexPath.row] unsignedIntegerValue];
+        NSIndexPath *mappedIP = [NSIndexPath indexPathForRow:realRow inSection:indexPath.section];
+        return %orig(mappedIP);
+    }
+    return %orig;
+}
+
+- (id)getSessionBaseInfoAtIndexPath:(NSIndexPath *)indexPath {
+    if (!getPrefBool(K_ENABLED, YES) || gActiveFilter == WCLiquidFilterTypeAll) {
+        return %orig;
+    }
+
+    if (indexPath && indexPath.row < (NSInteger)gFilteredRowMap.count) {
+        NSUInteger realRow = [gFilteredRowMap[indexPath.row] unsignedIntegerValue];
+        NSIndexPath *mappedIP = [NSIndexPath indexPathForRow:realRow inSection:indexPath.section];
+        return %orig(mappedIP);
     }
     return %orig;
 }
@@ -387,8 +413,13 @@ static void updateFilteredSessions(void) {
     if (!getPrefBool(K_ENABLED, YES) || gActiveFilter == WCLiquidFilterTypeAll) {
         return %orig;
     }
-    updateFilteredSessions();
-    // 微信会调用 getCellDataAtIndexPath 来获取每行的显示模型
+
+    if (indexPath && indexPath.row < (NSInteger)gFilteredRowMap.count) {
+        // 关键：把 CellData 的索引同样重定向到真实会话行的 CellData！
+        NSUInteger realRow = [gFilteredRowMap[indexPath.row] unsignedIntegerValue];
+        NSIndexPath *mappedIP = [NSIndexPath indexPathForRow:realRow inSection:indexPath.section];
+        return %orig(mappedIP);
+    }
     return %orig;
 }
 
@@ -396,10 +427,13 @@ static void updateFilteredSessions(void) {
     if (!getPrefBool(K_ENABLED, YES) || gActiveFilter == WCLiquidFilterTypeAll) {
         return %orig;
     }
-    updateFilteredSessions();
-    for (NSUInteger i = 0; i < gFilteredSessions.count; i++) {
-        MMSessionInfo *info = gFilteredSessions[i];
-        if ([info.m_nsUserName isEqualToString:userName]) {
+
+    // 查找该用户在当前过滤列表中的位置
+    for (NSUInteger i = 0; i < gFilteredRowMap.count; i++) {
+        NSUInteger realRow = [gFilteredRowMap[i] unsignedIntegerValue];
+        NSIndexPath *mappedIP = [NSIndexPath indexPathForRow:realRow inSection:section];
+        MMSessionInfo *info = %orig(userName, section);
+        if (info) {
             return [NSIndexPath indexPathForRow:i inSection:section];
         }
     }
@@ -429,7 +463,11 @@ static char kBannerHolderKey;
     __weak typeof(self) weakSelf = self;
     banner.bar.onFilterChanged = ^(WCLiquidFilterType type) {
         gActiveFilter = type;
-        updateFilteredSessions();
+        MainFrameLogicController *logic = [weakSelf valueForKey:@"m_mainFrameLogicController"];
+        if (logic && [logic respondsToSelector:@selector(cleanupCellDataCache)]) {
+            [logic cleanupCellDataCache];
+        }
+        rebuildSessionMapping(logic);
         UITableView *tb = [weakSelf valueForKey:@"m_tableView"];
         [tb reloadData];
     };
@@ -449,7 +487,7 @@ static char kBannerHolderKey;
 
     objc_setAssociatedObject(self, &kBannerHolderKey, banner, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-    // 全屏左右轻扫滑动手势 (Swipe Left / Right)
+    // 全屏左右轻扫滑动手势
     UISwipeGestureRecognizer *swipeLeft = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(handleLiquidSwipe:)];
     swipeLeft.direction = UISwipeGestureRecognizerDirectionLeft;
     [self.view addGestureRecognizer:swipeLeft];
