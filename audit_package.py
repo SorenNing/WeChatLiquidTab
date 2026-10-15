@@ -128,6 +128,12 @@ def audit(path):
             "injection filter is not limited to WeChat")
     binary = files[BASE + NAME + ".dylib"]
     details = macho(binary)
+    if fields.get("Version") == "0.0.3":
+        require(b"WGSettingsController" in binary and b"WGExtractor.SettingsEntry" in binary,
+                "settings controller or entry not present in final binary")
+        require(b"WGExtractor.Enabled" in binary and b"WGExtractor.RequestRetry" in binary,
+                "settings preference/retry integration missing")
+        details["settings_entry_symbols_present_not_ui_tested"] = True
     return {"static_audit": "PASS", "device_tested": False,
             "scope": "Package structure/link metadata only, not runtime correctness",
             "package": fields, "deb_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),

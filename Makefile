@@ -7,7 +7,7 @@ DEBUG := 0
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = WeChatGroupExtractor
-WeChatGroupExtractor_FILES = WGCore.m
+WeChatGroupExtractor_FILES = WGCore.m WGSettings.m
 WeChatGroupExtractor_FRAMEWORKS = UIKit Foundation CoreGraphics
 WeChatGroupExtractor_CFLAGS = -fobjc-arc -Wno-unused-parameter
 

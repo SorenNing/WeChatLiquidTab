@@ -10,6 +10,17 @@
 - 仅向 `com.tencent.xin` 注入。
 - 私有微信接口可能随微信版本变化；应在接口不兼容时放弃对应增强，不承诺所有版本兼容。
 
+## 0.0.3 入口与开关
+
+- **微信 → 我 → 设置 → 右上角“分组设置”**。这是导航栏按钮，不是微信列表内新增一行；不改微信私有设置表格模型。
+- 分组条末尾也有“设置”按钮。原生横幅无法显示时，使用首页导航栏标题位置作为备用分组条；不替换会话表格 dataSource/delegate。
+- 设置包含启用分组、好友中排除系统会话、调试日志、运行状态、重新检测与挂载、复制诊断信息。开关写在微信沙盒 NSUserDefaults 内；无玻璃参数。
+- 设置入口 hook 与分组数据源 hook 解耦。数据接口不兼容时仍应能打开设置和复制诊断，不会强行取消 ABI 检查。
+- 初始化、回到前台、首页 viewDidLoad/viewDidAppear 及 0/1/3/8/15/30 秒重试检查挂载；重试不重复插入可能已部分成功的原生横幅队列。
+- 0.0.2 把 `indexOfSessionUserName:inSection:` 强制当成对象返回，导致整数返回版本不能启用。0.0.3 接受受支持的 64 位整数行号或对象签名，计数返回/section 参数宽度独立判断。
+
+如果**两个入口都没有**，先确认实际安装包版本是 0.0.3，彻底退出微信再打开，并核实 RootHide 的微信注入。入口不存在不能仅靠设置页重试解决；请反馈微信版本与安装/注入状态。
+
 ## 构建
 
 GitHub Actions 使用 macOS、固定提交的 `roothide/theos`（含递归子模块）、固定且校验 SHA-256 的 iPhoneOS 16.5 SDK，以及 `ldid`、GNU make、dpkg。
@@ -17,6 +28,8 @@ GitHub Actions 使用 macOS、固定提交的 `roothide/theos`（含递归子模
 ```sh
 export THEOS=/path/to/roothide/theos
 make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
+cc -std=c11 -Wall -Wextra -Werror test_abi.c -o /tmp/wg-test-abi
+/tmp/wg-test-abi
 python3 -m unittest test_audit -v
 python3 audit_package.py packages/*.deb --output audit.json
 ```

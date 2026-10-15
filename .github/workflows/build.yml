@@ -50,7 +50,9 @@ jobs:
 
       - name: Audit package without installing it
         run: |
-          python3 -m unittest test_audit -v
+          cc -std=c11 -Wall -Wextra -Werror test_abi.c -o /tmp/wg-test-abi
+          /tmp/wg-test-abi
+          python3 -m unittest test_audit test_settings -v
           python3 audit_package.py packages/*.deb --output audit.json
 
       - name: Upload validated artifact

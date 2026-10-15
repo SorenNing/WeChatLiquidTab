@@ -2,7 +2,7 @@ Package: com.soren.wechatgroupextractor
 Name: WeChatGroupExtractor
 Depends: mobilesubstrate (>= 0.9.5000), firmware (>= 15.0)
 Conflicts: com.soren.wechatliquidtab
-Version: 0.0.2
+Version: 0.0.3
 Architecture: iphoneos-arm64e
 Description: 微信首页独立分组测试版，不含玻璃、模糊或调光功能
 Maintainer: Soren
