@@ -428,12 +428,11 @@ static BOOL gInsideCounting = NO;
         return %orig;
     }
 
-    // 查找该用户在当前过滤列表中的位置
     for (NSUInteger i = 0; i < gFilteredRowMap.count; i++) {
         NSUInteger realRow = [gFilteredRowMap[i] unsignedIntegerValue];
         NSIndexPath *mappedIP = [NSIndexPath indexPathForRow:realRow inSection:section];
-        MMSessionInfo *info = %orig(userName, section);
-        if (info) {
+        MMSessionInfo *info = [self getSessionInfoAtIndexPath:mappedIP];
+        if (info && [info respondsToSelector:@selector(m_nsUserName)] && [info.m_nsUserName isEqualToString:userName]) {
             return [NSIndexPath indexPathForRow:i inSection:section];
         }
     }
