@@ -1,28 +1,63 @@
-name: Build Tweak
+name: build-wechat-group-extractor
 
 on:
-  workflow_dispatch: 
-  push: 
-    branches: [main, WeChatGroupExtractor]
+  workflow_dispatch:
+  push:
+    branches: [WeChatGroupExtractor]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  roothide-package:
     runs-on: macos-14
+    timeout-minutes: 25
+    env:
+      THEOS: ${{ github.workspace }}/theos
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
-      - name: Setup Theos
+
+      - name: Checkout pinned roothide Theos and submodules
+        uses: actions/checkout@v4
+        with:
+          repository: roothide/theos
+          ref: cfba89a53a05b4a1b822121158acc3669c20602f
+          path: theos
+          submodules: recursive
+
+      - name: Download and verify iPhoneOS 16.5 SDK
         run: |
-          export THEOS=/Users/runner/theos
-          export THEOS_PACKAGE_SCHEME=roothide
-          rm -rf $THEOS
-          git clone --depth 1 https://github.com/theos/theos.git $THEOS
-          echo "THEOS=$THEOS" >> $GITHUB_ENV
-      - name: Build roothide package
+          curl -fL --retry 3 -o sdk.tar.xz https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz
+          echo '5e0fd3f01266cce4ce012d4a99b38eb56578fca40d09edc81cd83dee958202fb  sdk.tar.xz' | shasum -a 256 -c -
+          mkdir -p "$THEOS/sdks"
+          tar -xJf sdk.tar.xz -C "$THEOS/sdks"
+          rm sdk.tar.xz
+          test -f "$THEOS/sdks/iPhoneOS16.5.sdk/SDKSettings.plist"
+          test -f "$THEOS/vendor/dm.pl/dm.pl"
+
+      - name: Install build tools
+        run: brew install ldid make dpkg
+
+      - name: Build roothide DEB
         run: |
-          make package
-      - name: Upload artifact
+          export PATH="$(brew --prefix make)/libexec/gnubin:$PATH"
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
+
+      - name: Audit package without installing it
+        run: |
+          python3 -m unittest test_audit -v
+          python3 audit_package.py packages/*.deb --output audit.json
+
+      - name: Upload validated artifact
         uses: actions/upload-artifact@v4
         with:
           name: WeChatGroupExtractor-roothide-deb
-          path: packages/*.deb
+          if-no-files-found: error
+          path: |
+            packages/*.deb
+            audit.json

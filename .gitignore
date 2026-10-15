@@ -1,0 +1,10 @@
+/theos/
+/.theos/
+/packages/
+*.deb
+*.o
+*.d
+.DS_Store
+__pycache__/
+*.pyc
+/audit.json
