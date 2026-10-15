@@ -9,29 +9,21 @@ jobs:
   build:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Setup Theos
         run: |
           export THEOS=/Users/runner/theos
           export THEOS_PACKAGE_SCHEME=roothide
+          rm -rf $THEOS $THEOS/sdks
           git clone --depth 1 https://github.com/theos/theos.git $THEOS
           git clone --depth 1 https://github.com/theos/sdks.git $THEOS/sdks
           echo "THEOS=$THEOS" >> $GITHUB_ENV
-      
-      - name: Install dependencies
+      - name: Build roothide package
         run: |
-          brew install ldid
-          curl -sSL https://github.com/DHowett/cycript/releases/download/0.9.235/cycript.tar.bz2 | tar xvj &&
-          chmod +x cycript && sudo mv cycript /usr/local/bin
-      
-      - name: Build package
-        run: |
-          export THEOS_PACKAGE_SCHEME=roothide
-          make package FINALPACKAGE=1
-      
+          make package
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: WeChatGroupExtractor-roothide-deb
           path: packages/*.deb
