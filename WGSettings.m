@@ -1,6 +1,7 @@
 #import "WGSettings.h"
 #import "WGGroups.h"
 #import <objc/runtime.h>
+#import <objc/message.h>
 
 NSString *const WGPreferencesChanged = @"WGExtractor.PreferencesChanged";
 NSString *const WGRequestRetry = @"WGExtractor.RequestRetry";
@@ -97,6 +98,12 @@ void WGAttachSettingsEntry(UIViewController *controller) {
 
 @interface WGGroupManagerController : UITableViewController
 @end
+static id WGMakeSwipeAction(NSInteger style, NSString *title, id handler) {
+    Class cls = objc_getClass("UIContextualAction");
+    if (!cls) return nil;
+    id (*send)(id, SEL, NSInteger, id, id) = (id (*)(id, SEL, NSInteger, id, id))objc_msgSend;
+    return send([cls alloc], sel_registerName("initWithStyle:title:handler:"), style, title, handler);
+}
 @implementation WGGroupManagerController
 - (instancetype)init { return [super initWithStyle:UITableViewStyleInsetGrouped]; }
 - (void)viewDidLoad { [super viewDidLoad]; self.title = @"分组管理"; self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(addGroup)]; }
@@ -110,12 +117,14 @@ void WGAttachSettingsEntry(UIViewController *controller) {
 }
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)path {
     NSDictionary *g=WGGroupConfigs()[path.row]; if (![g[@"isCustom"] boolValue]) return nil;
-    UIContextualAction *delete = [[UIContextualAction alloc] initWithStyle:UIContextualActionStyleDestructive title:@"删除" handler:^(__unused UIContextualAction *a, __unused UIView *v, void (^done)(BOOL)) { WGDeleteCustomGroup(g[@"name"]); [tableView reloadData]; done(YES); }];
+    id delete = WGMakeSwipeAction(0, @"删除", ^(__unused id a, __unused id v, void (^done)(BOOL)) { WGDeleteCustomGroup(g[@"name"]); [tableView reloadData]; done(YES); });
+    if (!delete) return nil;
     return [UISwipeActionsConfiguration configurationWithActions:@[delete]];
 }
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView leadingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)path {
     NSDictionary *g=WGGroupConfigs()[path.row]; if (![g[@"isCustom"] boolValue]) return nil;
-    UIContextualAction *edit = [[UIContextualAction alloc] initWithStyle:UIContextualActionStyleNormal title:@"成员" handler:^(__unused UIContextualAction *a, __unused UIView *v, void (^done)(BOOL)) { [self editMembers:g]; done(YES); }];
+    id edit = WGMakeSwipeAction(1, @"成员", ^(__unused id a, __unused id v, void (^done)(BOOL)) { [self editMembers:g]; done(YES); });
+    if (!edit) return nil;
     return [UISwipeActionsConfiguration configurationWithActions:@[edit]];
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)path { NSDictionary*g=WGGroupConfigs()[path.row]; WGSetGroupVisible(g[@"name"], ![g[@"visible"] boolValue]); [tableView reloadData]; }
