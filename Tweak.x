@@ -312,7 +312,7 @@ static void updateFilteredSessions(void) {
 // ====================================================================
 // 利用微信官方 MainFrameHeaderLogic 挂载 Banner 容器 (永不消失)
 // ====================================================================
-@interface WCLiquidBannerHolder : MFBannerBtn
+@interface WCLiquidBannerHolder : UIButton
 @property (nonatomic, strong) WCLiquidGlassSegmentBar *bar;
 @end
 
@@ -442,9 +442,9 @@ static char kBannerHolderKey;
 
     // 使用官方微信 Banner 队列挂载
     if (headerLogic && [headerLogic respondsToSelector:@selector(addBannerBtn:atIndex:withAnim:)]) {
-        [headerLogic addBannerBtn:banner atIndex:0 withAnim:NO];
+        [headerLogic addBannerBtn:(id)banner atIndex:0 withAnim:NO];
     } else if (headerLogic && [headerLogic respondsToSelector:@selector(addBannerBtn:withAnim:)]) {
-        [headerLogic addBannerBtn:banner withAnim:NO];
+        [headerLogic addBannerBtn:(id)banner withAnim:NO];
     }
 
     objc_setAssociatedObject(self, &kBannerHolderKey, banner, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
