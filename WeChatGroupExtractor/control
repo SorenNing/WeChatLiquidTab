@@ -1,0 +1,9 @@
+Package: com.soren.wechatgroupextractor
+Name: WeChatGroupExtractor
+Depends: mobilesubstrate (>= 0.9.5000)
+Version: 0.0.1
+Architecture: iphoneos-arm64e
+Description: 纯分组功能提取版，不含任何视觉效果
+Maintainer: Soren
+Author: Soren
+Section: Tweaks
