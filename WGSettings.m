@@ -1,4 +1,5 @@
 #import "WGSettings.h"
+#import "WGGroups.h"
 #import <objc/runtime.h>
 
 NSString *const WGPreferencesChanged = @"WGExtractor.PreferencesChanged";
@@ -94,6 +95,34 @@ void WGAttachSettingsEntry(UIViewController *controller) {
     WGRecordStatus(@"设置入口", @"已添加到微信设置页右上角");
 }
 
+@interface WGGroupManagerController : UITableViewController
+@end
+@implementation WGGroupManagerController
+- (instancetype)init { return [super initWithStyle:UITableViewStyleInsetGrouped]; }
+- (void)viewDidLoad { [super viewDidLoad]; self.title = @"分组管理"; self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(addGroup)]; }
+- (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self.tableView reloadData]; }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return WGGroupConfigs().count; }
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section { return @"全部分组（左滑管理，右滑编辑成员）"; }
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
+    NSDictionary *g = WGGroupConfigs()[path.row]; UITableViewCell *c = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+    c.textLabel.text = g[@"name"]; c.detailTextLabel.text = [NSString stringWithFormat:@"%@ · %@ 个成员", [g[@"visible"] boolValue] ? @"显示" : @"隐藏", @([g[@"members"] count])];
+    c.accessoryType = [g[@"visible"] boolValue] ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone; return c;
+}
+- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)path {
+    NSDictionary *g=WGGroupConfigs()[path.row]; if (![g[@"isCustom"] boolValue]) return nil;
+    UIContextualAction *delete=[UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"删除"];
+    delete.handler=^(__unused UIContextualAction *a,__unused UIView *v,void(^done)(BOOL)){ WGDeleteCustomGroup(g[@"name"]); [tableView reloadData]; done(YES); }; return [UISwipeActionsConfiguration configurationWithActions:@[delete]];
+}
+- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView leadingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)path {
+    NSDictionary *g=WGGroupConfigs()[path.row]; if (![g[@"isCustom"] boolValue]) return nil;
+    UIContextualAction *edit=[UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal title:@"成员"];
+    edit.handler=^(__unused UIContextualAction *a,__unused UIView *v,void(^done)(BOOL)){ [self editMembers:g]; done(YES); }; return [UISwipeActionsConfiguration configurationWithActions:@[edit]];
+}
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)path { NSDictionary*g=WGGroupConfigs()[path.row]; WGSetGroupVisible(g[@"name"], ![g[@"visible"] boolValue]); [tableView reloadData]; }
+- (void)addGroup { UIAlertController *a=[UIAlertController alertControllerWithTitle:@"新增自定义分组" message:@"输入分组名称；创建后可左滑编辑成员微信号" preferredStyle:UIAlertControllerStyleAlert]; [a addTextFieldWithConfigurationHandler:^(UITextField*t){t.placeholder=@"例如：工作群";}]; [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]]; [a addAction:[UIAlertAction actionWithTitle:@"创建" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction*x){ NSString*n=a.textFields.firstObject.text; if(!WGCreateCustomGroup(n,@[])){ UIAlertController*e=[UIAlertController alertControllerWithTitle:@"创建失败" message:@"名称为空或已存在" preferredStyle:UIAlertControllerStyleAlert]; [e addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]]; [self presentViewController:e animated:YES completion:nil]; } [self.tableView reloadData]; }]]; [self presentViewController:a animated:YES completion:nil]; }
+- (void)editMembers:(NSDictionary *)g { UIAlertController*a=[UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"%@ · 成员",g[@"name"]] message:@"输入微信号，使用逗号或空格分隔" preferredStyle:UIAlertControllerStyleAlert]; [a addTextFieldWithConfigurationHandler:^(UITextField*t){t.text=[g[@"members"] componentsJoinedByString:@","]; t.placeholder=@"wxid_xxx,@chatroom";}]; [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]]; [a addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction*x){ NSString*s=a.textFields.firstObject.text?:@""; NSCharacterSet*sep=[NSCharacterSet characterSetWithCharactersInString:@",， \n"]; NSMutableArray*m=[NSMutableArray array]; for(NSString*v in [s componentsSeparatedByCharactersInSet:sep])if(v.length)[m addObject:v]; WGSetGroupMembers(g[@"name"],m); [self.tableView reloadData]; }]]; [self presentViewController:a animated:YES completion:nil]; }
+@end
+
 @implementation WGSettingsController
 - (instancetype)init { return [super initWithStyle:UITableViewStyleInsetGrouped]; }
 - (void)viewDidLoad {
@@ -106,7 +135,7 @@ void WGAttachSettingsEntry(UIViewController *controller) {
 - (void)dismissSettings { [self dismissViewControllerAnimated:YES completion:nil]; }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 4; }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    const NSInteger counts[] = {1, 1, 4, 1};
+    const NSInteger counts[] = {2, 1, 4, 1};
     return section >= 0 && section < 4 ? counts[section] : 0;
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
@@ -124,7 +153,8 @@ void WGAttachSettingsEntry(UIViewController *controller) {
     cell.detailTextLabel.numberOfLines = 0;
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
     NSString *key;
-    if (path.section == 0) { cell.textLabel.text = @"启用分组"; key = kEnabled; }
+    if (path.section == 0 && path.row == 0) { cell.textLabel.text = @"启用分组"; key = kEnabled; }
+    else if (path.section == 0 && path.row == 1) { cell.textLabel.text = @"管理分组"; cell.detailTextLabel.text = @"新增、隐藏、排序、重命名和编辑成员"; cell.textLabel.textColor = UIColor.systemBlueColor; cell.selectionStyle = UITableViewCellSelectionStyleDefault; }
     else if (path.section == 1) { cell.textLabel.text = @"好友中排除系统会话"; key = kExcludeSystem; }
     else if (path.section == 2 && path.row == 3) { cell.textLabel.text = @"调试日志"; key = kDebug; }
     else if (path.section == 2 && path.row == 0) {
@@ -155,6 +185,10 @@ void WGAttachSettingsEntry(UIViewController *controller) {
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)path {
     [tableView deselectRowAtIndexPath:path animated:YES];
+    if (path.section == 0 && path.row == 1) {
+        [self.navigationController pushViewController:[WGGroupManagerController new] animated:YES];
+        return;
+    }
     if (path.section != 2) return;
     if (path.row == 1) {
         [NSNotificationCenter.defaultCenter postNotificationName:WGRequestRetry object:nil];

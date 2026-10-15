@@ -2,6 +2,7 @@
 #import <objc/runtime.h>
 #import <substrate.h>
 #import "WGSettings.h"
+#import "WGGroups.h"
 #import "WGABI.h"
 #include <limits.h>
 #include <string.h>
@@ -81,24 +82,9 @@ static NSString *WGUserName(id session) {
     return nil;
 }
 
-static BOOL WGMatches(NSString *user, WGFilter filter) {
-    if (filter == WGAll) return YES;
-    BOOL group = [user hasSuffix:@"@chatroom"];
-    BOOL official = [user hasPrefix:@"gh_"] || [user isEqualToString:@"brandsessionholder"];
-    if (filter == WGGroups) return group;
-    if (filter == WGOfficial) return official;
-    // Username heuristic, NOT proof of contact friendship. Exclude known holders/system IDs.
-    static NSSet<NSString *> *systemUsers;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        systemUsers = [NSSet setWithArray:@[@"newsapp", @"weixin", @"filehelper",
-            @"notification_messages", @"fmessage", @"medianote", @"floatbottle",
-            @"qmessage", @"tmessage", @"qqmail", @"masssendapp", @"feedsapp",
-            @"shakeapp", @"voipapp", @"readerapp", @"linkedinplugin"]];
-    });
-    return user.length && !group && !official &&
-        (!WGExcludeSystemUsers() || ![systemUsers containsObject:user]) &&
-        [user rangeOfString:@"@"].location == NSNotFound;
+static BOOL WGMatches(id session, NSString *groupName) {
+    if (!groupName.length || [groupName isEqualToString:@"全部"]) return YES;
+    return WGGroupMatchesSession(session, groupName);
 }
 
 @interface WGSnapshot : NSObject
@@ -112,6 +98,7 @@ static BOOL WGMatches(NSString *user, WGFilter filter) {
 
 @interface WGState : NSObject
 @property(nonatomic) WGFilter filter;
+@property(nonatomic, copy) NSString *groupName;
 @property(nonatomic, weak) id logic;
 @property(nonatomic, weak) UITableView *table;
 @property(nonatomic, strong) UIView *banner;
@@ -145,8 +132,13 @@ static BOOL WGMatches(NSString *user, WGFilter filter) {
     });
 }
 - (void)selectFilter:(WGFilter)filter {
-    if (!WGEnabled() || filter > WGOfficial || self.filter == filter) return;
+    NSArray *groups = WGActiveGroupConfigs();
+    if (!WGEnabled() || filter >= groups.count) return;
+    NSString *name = groups[filter][@"name"];
+    if ([self.groupName isEqualToString:name]) return;
     self.filter = filter;
+    self.groupName = name;
+    WGSelectGroupName(name);
     [self.sections removeAllObjects];
     [self.table reloadData];
 }
@@ -155,7 +147,7 @@ static BOOL WGMatches(NSString *user, WGFilter filter) {
 static WGState *WGActiveState(id logic) {
     if (!gReady || !WGEnabled() || gNativeDepth || !NSThread.isMainThread) return nil;
     WGState *state = objc_getAssociatedObject(logic, &kWGState);
-    return state.filter == WGAll ? nil : state;
+    return state.groupName.length && ![state.groupName isEqualToString:@"全部"] ? state : nil;
 }
 
 static NSUInteger WGRawCount(id logic, NSUInteger section) {
@@ -185,9 +177,10 @@ static WGSnapshot *WGBuildSnapshot(id logic, NSUInteger section, NSUInteger rawC
     if (rawCount > 20000 || section > NSIntegerMax) snapshot.passthrough = YES;
     for (NSUInteger row = 0; row < rawCount && !snapshot.passthrough; ++row) {
         NSIndexPath *path = [NSIndexPath indexPathForRow:(NSInteger)row inSection:(NSInteger)section];
-        NSString *user = WGUserName(WGRawObject(gInfo, logic, sInfo, path));
+        id session = WGRawObject(gInfo, logic, sInfo, path);
+        NSString *user = WGUserName(session);
         if (!user) { snapshot.passthrough = YES; break; }
-        if (WGMatches(user, state.filter)) { [rows addObject:@(row)]; [names addObject:user]; }
+        if (WGMatches(session, state.groupName ?: @"全部")) { [rows addObject:@(row)]; [names addObject:user]; }
     }
     // Never publish a partial map if a private model could not be understood.
     snapshot.rows = snapshot.passthrough ? @[] : rows;
@@ -350,25 +343,14 @@ static id WGReversePath(id logic, SEL selector, id user) {
 // Plain controls; the trailing settings button remains reachable when filtering is off.
 @interface WGSegmentBar : UIView
 @property(nonatomic, weak) WGState *state;
-@property(nonatomic, strong) NSArray<UIButton *> *buttons;
+@property(nonatomic, strong) NSMutableArray<UIButton *> *buttons;
 @property(nonatomic, strong) UIButton *settingsButton;
 - (void)refresh;
 @end
 @implementation WGSegmentBar
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
-        NSArray<NSString *> *titles = @[@"全部", @"好友", @"群聊", @"订阅号"];
-        NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
-        for (NSUInteger n = 0; n < titles.count; ++n) {
-            UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-            button.tag = (NSInteger)n;
-            [button setTitle:titles[n] forState:UIControlStateNormal];
-            button.titleLabel.font = [UIFont systemFontOfSize:15];
-            [button addTarget:self action:@selector(select:) forControlEvents:UIControlEventTouchUpInside];
-            [self addSubview:button];
-            [buttons addObject:button];
-        }
-        self.buttons = buttons;
+        self.buttons = [NSMutableArray array];
         self.settingsButton = [UIButton buttonWithType:UIButtonTypeSystem];
         [self.settingsButton setTitle:@"设置" forState:UIControlStateNormal];
         self.settingsButton.titleLabel.font = [UIFont systemFontOfSize:13];
@@ -381,10 +363,10 @@ static id WGReversePath(id logic, SEL selector, id user) {
 - (void)layoutSubviews {
     [super layoutSubviews];
     CGFloat settingsWidth = 44;
-    CGFloat width = MAX(0, self.bounds.size.width - settingsWidth) / 4.0;
+    CGFloat width = MAX(0, self.bounds.size.width - settingsWidth) / MAX((CGFloat)self.buttons.count, 1);
     for (NSUInteger n = 0; n < self.buttons.count; ++n)
         self.buttons[n].frame = CGRectMake(n * width, 0, width, self.bounds.size.height);
-    self.settingsButton.frame = CGRectMake(width * 4, 0, settingsWidth, self.bounds.size.height);
+    self.settingsButton.frame = CGRectMake(width * self.buttons.count, 0, settingsWidth, self.bounds.size.height);
 }
 - (CGSize)intrinsicContentSize { return CGSizeMake(300, 40); }
 - (void)openSettings { WGPresentSettings(self.state.controller); }
@@ -393,13 +375,27 @@ static id WGReversePath(id logic, SEL selector, id user) {
     [self refresh];
 }
 - (void)refresh {
-    for (UIButton *button in self.buttons) {
+    NSArray *groups = WGActiveGroupConfigs();
+    while (self.buttons.count > groups.count) { [self.buttons.lastObject removeFromSuperview]; [self.buttons removeLastObject]; }
+    while (self.buttons.count < groups.count) {
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+        button.titleLabel.font = [UIFont systemFontOfSize:15];
+        [button addTarget:self action:@selector(select:) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:button]; [self.buttons addObject:button];
+    }
+    NSUInteger current = [groups indexOfObjectPassingTest:^BOOL(NSDictionary *g, NSUInteger idx, BOOL *stop) { return [g[@"name"] isEqualToString:self.state.groupName ?: WGCurrentGroupName()]; }];
+    if (current == NSNotFound) current = 0;
+    if (!self.state.groupName.length) self.state.groupName = WGCurrentGroupName();
+    for (NSUInteger n = 0; n < self.buttons.count; ++n) {
+        UIButton *button = self.buttons[n]; button.tag = (NSInteger)n;
+        [button setTitle:groups[n][@"name"] forState:UIControlStateNormal];
         button.enabled = WGEnabled() && gReady && self.state.logic && self.state.table;
-        BOOL active = (NSUInteger)button.tag == self.state.filter && button.enabled;
+        BOOL active = n == current && button.enabled;
         [button setTitleColor:active ? UIColor.systemBlueColor : UIColor.labelColor forState:UIControlStateNormal];
         button.titleLabel.font = active ? [UIFont boldSystemFontOfSize:15] : [UIFont systemFontOfSize:15];
         button.accessibilityTraits = UIAccessibilityTraitButton | (active ? UIAccessibilityTraitSelected : 0);
     }
+    [self setNeedsLayout];
 }
 @end
 
@@ -477,6 +473,9 @@ static void WGMount(id rawController) {
     WGState *state = objc_getAssociatedObject(controller, &kWGState);
     if (!state) {
         state = [WGState new];
+        state.groupName = WGCurrentGroupName();
+        state.filter = (WGFilter)[[WGActiveGroupConfigs() valueForKey:@"name"] indexOfObject:state.groupName];
+        if (state.filter == NSNotFound) state.filter = WGAll;
         objc_setAssociatedObject(controller, &kWGState, state, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         if (!gStates) gStates = [NSHashTable weakObjectsHashTable];
         [gStates addObject:state];
@@ -685,7 +684,7 @@ static void WGRefreshVisibleControllers(void) {
 
 static void WGPreferencesDidChange(void) {
     for (WGState *state in gStates.allObjects) {
-        if (!WGEnabled()) state.filter = WGAll;
+        if (!WGEnabled()) { state.filter = WGAll; state.groupName = @"全部"; }
         [state.sections removeAllObjects];
         [(WGSegmentBar *)state.bar refresh];
         [state queueReload];
@@ -698,6 +697,8 @@ __attribute__((constructor)) static void WGInitialize(void) {
         dispatch_async(dispatch_get_main_queue(), ^{
             WGRecordStatus(@"插件版本", @"0.0.3 已加载");
             [NSNotificationCenter.defaultCenter addObserverForName:WGPreferencesChanged object:nil queue:NSOperationQueue.mainQueue
+                usingBlock:^(__unused NSNotification *note) { WGPreferencesDidChange(); }];
+            [NSNotificationCenter.defaultCenter addObserverForName:WGGroupConfigsChanged object:nil queue:NSOperationQueue.mainQueue
                 usingBlock:^(__unused NSNotification *note) { WGPreferencesDidChange(); }];
             for (NSString *name in @[WGRequestRetry, UIApplicationDidBecomeActiveNotification])
                 [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:NSOperationQueue.mainQueue
