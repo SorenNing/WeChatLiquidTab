@@ -483,10 +483,19 @@ static char kBannerHolderKey;
     }
 
     CGFloat w = table ? table.bounds.size.width : [UIScreen mainScreen].bounds.size.width;
-    WCLiquidBannerHolder *banner = [[WCLiquidBannerHolder alloc] initWithFrame:CGRectMake(0, 0, w, 46)];
+    
+    // 使用微信原生的 MFBannerBtn 类动态创建实例，绝对零类型冲突
+    Class mfBannerClass = objc_getClass("MFBannerBtn") ?: [UIButton class];
+    id bannerInstance = [[mfBannerClass alloc] initWithFrame:CGRectMake(0, 0, w, 46)];
+    
+    // 在其上添加我们的纯净水滴胶囊 bar
+    CGFloat barW = MIN(w - 24, 396);
+    CGFloat barX = (w - barW) / 2.0;
+    WCLiquidGlassSegmentBar *bar = [[WCLiquidGlassSegmentBar alloc] initWithFrame:CGRectMake(barX, 4, barW, 38)];
+    [bannerInstance addSubview:bar];
 
     __weak typeof(self) weakSelf = self;
-    banner.bar.onFilterChanged = ^(WCLiquidFilterType type) {
+    bar.onFilterChanged = ^(WCLiquidFilterType type) {
         gActiveFilter = type;
         MainFrameLogicController *logic = nil;
         Ivar ivarLC = class_getInstanceVariable([weakSelf class], "m_mainFrameLogicController");
@@ -511,7 +520,7 @@ static char kBannerHolderKey;
         [tb reloadData];
     };
 
-    banner.bar.onLongPressed = ^{
+    bar.onLongPressed = ^{
         WeChatLiquidTabSettingViewController *vc = [[WeChatLiquidTabSettingViewController alloc] init];
         UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
         [weakSelf presentViewController:nav animated:YES completion:nil];
@@ -521,16 +530,16 @@ static char kBannerHolderKey;
     if (headerLogic) {
         @try {
             if ([headerLogic respondsToSelector:@selector(addBannerBtn:atIndex:withAnim:)]) {
-                [headerLogic addBannerBtn:(id)banner atIndex:0 withAnim:NO];
+                [headerLogic addBannerBtn:bannerInstance atIndex:0 withAnim:NO];
             } else if ([headerLogic respondsToSelector:@selector(addBannerBtn:withAnim:)]) {
-                [headerLogic addBannerBtn:(id)banner withAnim:NO];
+                [headerLogic addBannerBtn:bannerInstance withAnim:NO];
             }
         } @catch (NSException *e) {
             NSLog(@"[WeChatLiquidTab] addBannerBtn error: %@", e);
         }
     }
 
-    objc_setAssociatedObject(self, &kBannerHolderKey, banner, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self, &kBannerHolderKey, bar, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
     // 4. 全屏左右轻扫滑动手势
     UISwipeGestureRecognizer *swipeLeft = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(handleLiquidSwipe:)];
@@ -546,13 +555,13 @@ static char kBannerHolderKey;
 - (void)handleLiquidSwipe:(UISwipeGestureRecognizer *)gesture {
     if (!getPrefBool(K_GESTURE, YES)) return;
 
-    WCLiquidBannerHolder *holder = objc_getAssociatedObject(self, &kBannerHolderKey);
-    if (!holder || !holder.bar) return;
+    WCLiquidGlassSegmentBar *bar = objc_getAssociatedObject(self, &kBannerHolderKey);
+    if (!bar) return;
 
     NSInteger cur = (NSInteger)gActiveFilter;
     if (gesture.direction == UISwipeGestureRecognizerDirectionLeft) {
         if (cur < (NSInteger)WCLiquidFilterTypeOfficial) {
-            [holder.bar switchToFilter:(WCLiquidFilterType)(cur + 1) animate:YES];
+            [bar switchToFilter:(WCLiquidFilterType)(cur + 1) animate:YES];
             if (@available(iOS 10.0, *)) {
                 UISelectionFeedbackGenerator *fb = [[UISelectionFeedbackGenerator alloc] init];
                 [fb selectionChanged];
@@ -560,7 +569,7 @@ static char kBannerHolderKey;
         }
     } else if (gesture.direction == UISwipeGestureRecognizerDirectionRight) {
         if (cur > (NSInteger)WCLiquidFilterTypeAll) {
-            [holder.bar switchToFilter:(WCLiquidFilterType)(cur - 1) animate:YES];
+            [bar switchToFilter:(WCLiquidFilterType)(cur - 1) animate:YES];
             if (@available(iOS 10.0, *)) {
                 UISelectionFeedbackGenerator *fb = [[UISelectionFeedbackGenerator alloc] init];
                 [fb selectionChanged];
