@@ -110,13 +110,13 @@ void WGAttachSettingsEntry(UIViewController *controller) {
 }
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)path {
     NSDictionary *g=WGGroupConfigs()[path.row]; if (![g[@"isCustom"] boolValue]) return nil;
-    UIContextualAction *delete=[UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"删除"];
-    delete.handler=^(__unused UIContextualAction *a,__unused UIView *v,void(^done)(BOOL)){ WGDeleteCustomGroup(g[@"name"]); [tableView reloadData]; done(YES); }; return [UISwipeActionsConfiguration configurationWithActions:@[delete]];
+    UIContextualAction *delete = [UIContextualAction actionWithStyle:UIContextualActionStyleDestructive title:@"删除" handler:^(__unused UIContextualAction *a, __unused UIView *v, void (^done)(BOOL)) { WGDeleteCustomGroup(g[@"name"]); [tableView reloadData]; done(YES); }];
+    return [UISwipeActionsConfiguration configurationWithActions:@[delete]];
 }
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView leadingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)path {
     NSDictionary *g=WGGroupConfigs()[path.row]; if (![g[@"isCustom"] boolValue]) return nil;
-    UIContextualAction *edit=[UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal title:@"成员"];
-    edit.handler=^(__unused UIContextualAction *a,__unused UIView *v,void(^done)(BOOL)){ [self editMembers:g]; done(YES); }; return [UISwipeActionsConfiguration configurationWithActions:@[edit]];
+    UIContextualAction *edit = [UIContextualAction actionWithStyle:UIContextualActionStyleNormal title:@"成员" handler:^(__unused UIContextualAction *a, __unused UIView *v, void (^done)(BOOL)) { [self editMembers:g]; done(YES); }];
+    return [UISwipeActionsConfiguration configurationWithActions:@[edit]];
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)path { NSDictionary*g=WGGroupConfigs()[path.row]; WGSetGroupVisible(g[@"name"], ![g[@"visible"] boolValue]); [tableView reloadData]; }
 - (void)addGroup { UIAlertController *a=[UIAlertController alertControllerWithTitle:@"新增自定义分组" message:@"输入分组名称；创建后可左滑编辑成员微信号" preferredStyle:UIAlertControllerStyleAlert]; [a addTextFieldWithConfigurationHandler:^(UITextField*t){t.placeholder=@"例如：工作群";}]; [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]]; [a addAction:[UIAlertAction actionWithTitle:@"创建" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction*x){ NSString*n=a.textFields.firstObject.text; if(!WGCreateCustomGroup(n,@[])){ UIAlertController*e=[UIAlertController alertControllerWithTitle:@"创建失败" message:@"名称为空或已存在" preferredStyle:UIAlertControllerStyleAlert]; [e addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]]; [self presentViewController:e animated:YES completion:nil]; } [self.tableView reloadData]; }]]; [self presentViewController:a animated:YES completion:nil]; }
