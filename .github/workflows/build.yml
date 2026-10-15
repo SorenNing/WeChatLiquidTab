@@ -11,26 +11,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Set up Theos
+      - name: Setup Theos
         run: |
-          git clone --depth 1 https://github.com/theos/theos.git /opt/theos
-          git clone --depth 1 https://github.com/theos/sdks.git /opt/theos/sdks
+          export THEOS=/Users/runner/theos
+          export THEOS_PACKAGE_SCHEME=roothide
+          git clone --depth 1 https://github.com/theos/theos.git $THEOS
+          git clone --depth 1 https://github.com/theos/sdks.git $THEOS/sdks
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
       
       - name: Install dependencies
         run: |
           brew install ldid
-          ln -s /opt/theos /opt/homebrew/bin
+          curl -sSL https://github.com/DHowett/cycript/releases/download/0.9.235/cycript.tar.bz2 | tar xvj &&
+          chmod +x cycript && sudo mv cycript /usr/local/bin
       
       - name: Build package
-        env:
-          THEOS: /opt/theos
-          SDKROOT: /opt/theos/sdks/iphoneos16.5.sdk
-          SDK: iphoneos16.5
         run: |
+          export THEOS_PACKAGE_SCHEME=roothide
           make package FINALPACKAGE=1
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WeChatGroupExtractor-deb
+          name: WeChatGroupExtractor-roothide-deb
           path: packages/*.deb
