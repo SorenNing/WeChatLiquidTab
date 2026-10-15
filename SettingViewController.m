@@ -144,15 +144,15 @@
         }
     } else if (indexPath.section == 2) {
         if (indexPath.row == 0) {
+            cell.textLabel.text = @"全屏左右轻扫切换";
+            createSwitch(@"WCLiquid_enableSwipeGesture", YES);
+        } else {
             cell.textLabel.text = @"隐藏分栏小红点";
             createSwitch(K_HIDE_DOTS, NO);
-        } else {
-            cell.textLabel.text = @"拦截群聊切换";
-            createSwitch(K_INTERCEPT, NO);
         }
     } else if (indexPath.section == 3) {
         cell.textLabel.text = @"当前版本";
-        cell.detailTextLabel.text = @"0.2.4 (roothide)";
+        cell.detailTextLabel.text = @"1.1.0 (roothide 纯净独立版)";
     }
 
     return cell;
