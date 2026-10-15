@@ -315,10 +315,14 @@ static void rebuildSessionMapping(MainFrameLogicController *controller) {
 @end
 
 // ====================================================================
-// 利用微信官方 MainFrameHeaderLogic 挂载 Banner (永不消失)
+// 包装成原生的 MFBannerBtn (补齐微信官方协议方法，绝对不报 unrecognized selector)
 // ====================================================================
 @interface WCLiquidBannerHolder : UIButton
 @property (nonatomic, strong) WCLiquidGlassSegmentBar *bar;
+- (void)setTitleText:(id)arg1;
+- (void)setRightArrowHidden:(_Bool)arg1;
+- (void)removeSmallDot;
+- (void)setTitleIcon:(id)arg1;
 @end
 
 @implementation WCLiquidBannerHolder
@@ -336,6 +340,12 @@ static void rebuildSessionMapping(MainFrameLogicController *controller) {
     }
     return self;
 }
+
+// 补齐微信 MFBanner 协议方法，绝不抛异常
+- (void)setTitleText:(id)arg1 {}
+- (void)setRightArrowHidden:(_Bool)arg1 {}
+- (void)removeSmallDot {}
+- (void)setTitleIcon:(id)arg1 {}
 
 - (void)layoutSubviews {
     [super layoutSubviews];
@@ -388,7 +398,6 @@ static BOOL gInsideCounting = NO;
     }
 
     if (indexPath && indexPath.row < (NSInteger)gFilteredRowMap.count) {
-        // 重定向为原微信会话列表中真实的一一对应映射索引，类型 100% 严丝合缝
         NSUInteger realRow = [gFilteredRowMap[indexPath.row] unsignedIntegerValue];
         NSIndexPath *mappedIP = [NSIndexPath indexPathForRow:realRow inSection:indexPath.section];
         return %orig(mappedIP);
@@ -415,7 +424,6 @@ static BOOL gInsideCounting = NO;
     }
 
     if (indexPath && indexPath.row < (NSInteger)gFilteredRowMap.count) {
-        // 关键：把 CellData 的索引同样重定向到真实会话行的 CellData！
         NSUInteger realRow = [gFilteredRowMap[indexPath.row] unsignedIntegerValue];
         NSIndexPath *mappedIP = [NSIndexPath indexPathForRow:realRow inSection:indexPath.section];
         return %orig(mappedIP);
@@ -442,19 +450,37 @@ static BOOL gInsideCounting = NO;
 %end
 
 // ====================================================================
-// Hook NewMainFrameViewController：原生 Banner 挂载 + 全屏横滑手势
+// Hook NewMainFrameViewController：安全获取 headerLogic 挂载 + 全屏横滑手势
 // ====================================================================
 static char kBannerHolderKey;
 
 %hook NewMainFrameViewController
 
-- (void)viewDidLoad {
+- (void)viewDidAppear:(BOOL)animated {
     %orig;
 
     if (!getPrefBool(K_ENABLED, YES)) return;
 
-    UITableView *table = [self valueForKey:@"m_tableView"];
-    MainFrameHeaderLogic *headerLogic = [self valueForKey:@"m_headerLogic"];
+    // 检查是否已经添加过，避免重复挂载
+    if (objc_getAssociatedObject(self, &kBannerHolderKey)) return;
+
+    // 1. 安全获取 m_headerLogic (优先使用 ivar，其次使用 KVC)
+    MainFrameHeaderLogic *headerLogic = nil;
+    Ivar ivarHL = class_getInstanceVariable([self class], "m_headerLogic");
+    if (ivarHL) {
+        headerLogic = object_getIvar(self, ivarHL);
+    } else {
+        @try { headerLogic = [self valueForKey:@"m_headerLogic"]; } @catch (NSException *e) {}
+    }
+
+    // 2. 安全获取 m_tableView
+    UITableView *table = nil;
+    Ivar ivarTB = class_getInstanceVariable([self class], "m_tableView");
+    if (ivarTB) {
+        table = object_getIvar(self, ivarTB);
+    } else {
+        @try { table = [self valueForKey:@"m_tableView"]; } @catch (NSException *e) {}
+    }
 
     CGFloat w = table ? table.bounds.size.width : [UIScreen mainScreen].bounds.size.width;
     WCLiquidBannerHolder *banner = [[WCLiquidBannerHolder alloc] initWithFrame:CGRectMake(0, 0, w, 46)];
@@ -462,12 +488,26 @@ static char kBannerHolderKey;
     __weak typeof(self) weakSelf = self;
     banner.bar.onFilterChanged = ^(WCLiquidFilterType type) {
         gActiveFilter = type;
-        MainFrameLogicController *logic = [weakSelf valueForKey:@"m_mainFrameLogicController"];
+        MainFrameLogicController *logic = nil;
+        Ivar ivarLC = class_getInstanceVariable([weakSelf class], "m_mainFrameLogicController");
+        if (ivarLC) {
+            logic = object_getIvar(weakSelf, ivarLC);
+        } else {
+            @try { logic = [weakSelf valueForKey:@"m_mainFrameLogicController"]; } @catch (NSException *e) {}
+        }
+
         if (logic && [logic respondsToSelector:@selector(cleanupCellDataCache)]) {
             [logic cleanupCellDataCache];
         }
         rebuildSessionMapping(logic);
-        UITableView *tb = [weakSelf valueForKey:@"m_tableView"];
+
+        UITableView *tb = nil;
+        Ivar ivarT = class_getInstanceVariable([weakSelf class], "m_tableView");
+        if (ivarT) {
+            tb = object_getIvar(weakSelf, ivarT);
+        } else {
+            @try { tb = [weakSelf valueForKey:@"m_tableView"]; } @catch (NSException *e) {}
+        }
         [tb reloadData];
     };
 
@@ -477,16 +517,22 @@ static char kBannerHolderKey;
         [weakSelf presentViewController:nav animated:YES completion:nil];
     };
 
-    // 使用官方微信 Banner 队列挂载
-    if (headerLogic && [headerLogic respondsToSelector:@selector(addBannerBtn:atIndex:withAnim:)]) {
-        [headerLogic addBannerBtn:(id)banner atIndex:0 withAnim:NO];
-    } else if (headerLogic && [headerLogic respondsToSelector:@selector(addBannerBtn:withAnim:)]) {
-        [headerLogic addBannerBtn:(id)banner withAnim:NO];
+    // 3. 使用微信官方 Banner 接口挂载 (增加防护 try-catch)
+    if (headerLogic) {
+        @try {
+            if ([headerLogic respondsToSelector:@selector(addBannerBtn:atIndex:withAnim:)]) {
+                [headerLogic addBannerBtn:(id)banner atIndex:0 withAnim:NO];
+            } else if ([headerLogic respondsToSelector:@selector(addBannerBtn:withAnim:)]) {
+                [headerLogic addBannerBtn:(id)banner withAnim:NO];
+            }
+        } @catch (NSException *e) {
+            NSLog(@"[WeChatLiquidTab] addBannerBtn error: %@", e);
+        }
     }
 
     objc_setAssociatedObject(self, &kBannerHolderKey, banner, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-    // 全屏左右轻扫滑动手势
+    // 4. 全屏左右轻扫滑动手势
     UISwipeGestureRecognizer *swipeLeft = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(handleLiquidSwipe:)];
     swipeLeft.direction = UISwipeGestureRecognizerDirectionLeft;
     [self.view addGestureRecognizer:swipeLeft];
